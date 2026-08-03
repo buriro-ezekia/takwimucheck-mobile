@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import Purchases, { CustomerInfo, LOG_LEVEL } from 'react-native-purchases';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 
-export const REVENUECAT_ENTITLEMENT_ID = 'takwimucheck_pro';
+export const REVENUECAT_ENTITLEMENT_ID = 'TakwimuCheck Pro';
 
 export type RevenueCatState =
   | 'ready'
