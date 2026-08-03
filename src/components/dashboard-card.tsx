@@ -1,15 +1,16 @@
 // Renders a reusable dashboard surface that can optionally behave as a navigation card.
 
-import type { PropsWithChildren } from 'react';
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colours } from '@/constants/colours';
 
-interface DashboardCardProps extends PropsWithChildren {
+interface DashboardCardProps {
   title: string;
   description?: string;
   onPress?: () => void;
   accessibilityLabel?: string;
+  children?: ReactNode;
 }
 
 export function DashboardCard({
