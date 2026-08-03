@@ -1,18 +1,28 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+// Configures the TakwimuCheck route stack and global safe-area treatment.
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-SplashScreen.preventAutoHideAsync();
+import { Colours } from '@/constants/colours';
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <StatusBar style="dark" />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: Colours.background },
+          animation: 'slide_from_right',
+        }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="demo" />
+        <Stack.Screen name="validation-summary" />
+        <Stack.Screen name="issues" />
+        <Stack.Screen name="upgrade" />
+        <Stack.Screen name="settings" />
+      </Stack>
+    </SafeAreaProvider>
   );
 }
