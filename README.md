@@ -18,6 +18,11 @@ Implemented:
 - synthetic demonstration project;
 - transparent validation summary;
 - filterable issue register;
+- interactive accept, defer and propose-correction decisions;
+- required reviewer identity and reason fields;
+- required proposed value for correction proposals;
+- timestamped decision history and dynamic review counters;
+- explicit demonstration reset control;
 - settings, privacy and connectivity safeguards;
 - typed backend readiness client aligned with the deployed public routes;
 - live health, version and runtime-status connection test;
@@ -30,7 +35,7 @@ Implemented:
 - protected local environment files;
 - GitHub Actions checks for TypeScript, Expo compatibility, project health and web export.
 
-The demonstration data are fictional and contain no personal or confidential respondent information.
+The demonstration data, issues and review decisions are fictional and contain no personal or confidential respondent information.
 
 ## Product principles
 
@@ -41,6 +46,27 @@ The demonstration data are fictional and contain no personal or confidential res
 - Visible validation and metadata coverage.
 - Mobile-first and low-connectivity optimised, not fully offline.
 - Human approval before correction or final acceptance.
+
+## Interactive review demonstration
+
+The sample issue register supports three review actions:
+
+```text
+Accept finding
+Defer finding
+Propose correction
+```
+
+Each action records:
+
+- the issue identifier;
+- the selected action;
+- reviewer name;
+- a required reason;
+- a proposed value when correction is selected;
+- an ISO timestamp.
+
+Review state is shared across routes for the current app session. The demonstration reset control restores the seeded synthetic issues and audit history. No review action changes a source record.
 
 ## RevenueCat configuration
 
@@ -139,7 +165,7 @@ Run the web preview:
 npm run web
 ```
 
-The web preview can test public backend readiness and display subscription status, but it does not initiate native store purchases.
+The web preview can test public backend readiness and the interactive synthetic review workflow, but it does not initiate native store purchases.
 
 Run project checks:
 
@@ -177,9 +203,9 @@ A development build is required for the full RevenueCat Test Store flow. Expo Go
 
 ```text
 src/app/index.tsx                Home dashboard
-src/app/demo.tsx                 Synthetic project overview
+src/app/demo.tsx                 Synthetic project and live sample-review overview
 src/app/validation-summary.tsx   Validation coverage and issue summary
-src/app/issues.tsx               Filterable sample issue register
+src/app/issues.tsx               Interactive sample issue register and audit history
 src/app/upgrade.tsx              RevenueCat Pro subscription screen
 src/app/settings.tsx             Backend, safeguards and purchase status
 ```
@@ -192,14 +218,14 @@ Completed:
 2. TakwimuCheck product shell and synthetic workflow.
 3. RevenueCat Test Store integration and verified Android purchase flow.
 4. Backend readiness client and release hardening.
+5. Interactive issue-review workflow with local audit history.
 
 Next production batches:
 
-1. Interactive issue-review decisions with local audit history.
-2. Backend authentication and protected-route access.
-3. CSV selection, upload preflight and validation-run orchestration.
-4. Real issue-register retrieval, review submission and export workflows.
-5. Google Play subscription products, internal testing and store-release preparation.
+1. Backend authentication and protected-route access.
+2. CSV selection, upload preflight and validation-run orchestration.
+3. Real issue-register retrieval, review submission and export workflows.
+4. Google Play subscription products, internal testing and store-release preparation.
 
 ## Licence
 

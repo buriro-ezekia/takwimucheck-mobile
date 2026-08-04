@@ -10,10 +10,14 @@ import { PrimaryButton } from '@/components/primary-button';
 import { QualityMetric } from '@/components/quality-metric';
 import { Colours } from '@/constants/colours';
 import { demoProject, ruleCoverage } from '@/constants/demo-data';
+import { useReview } from '@/providers/review-provider';
 
 export default function DemoProjectScreen() {
   const router = useRouter();
+  const { issues, decisions } = useReview();
   const { metrics } = demoProject;
+  const sampleOpen = issues.filter((issue) => issue.status === 'open').length;
+  const sampleReviewed = issues.length - sampleOpen;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -25,13 +29,13 @@ export default function DemoProjectScreen() {
             showBack
             eyebrow="Demonstration project"
             title={demoProject.name}
-            subtitle="A fictional household-survey project showing the planned mobile review experience without exposing real respondent data."
+            subtitle="A fictional household-survey project showing a safe mobile validation and review experience without exposing real respondent data."
           />
 
           <View style={styles.notice}>
             <Text style={styles.noticeTitle}>Demo mode</Text>
             <Text style={styles.noticeText}>
-              All records, variables and issue examples on this screen are synthetic.
+              All records, variables, issue examples and review decisions are synthetic.
             </Text>
           </View>
 
@@ -56,6 +60,15 @@ export default function DemoProjectScreen() {
             <QualityMetric label="Reviewed issues" value={metrics.reviewedIssues} tone="success" />
             <QualityMetric label="Open issues" value={metrics.openIssues} tone="brand" />
           </View>
+
+          <DashboardCard
+            title="Interactive sample review"
+            description="These counts update as decisions are recorded in the six synthetic sample findings.">
+            <DetailRow label="Samples" value={String(issues.length)} />
+            <DetailRow label="Open" value={String(sampleOpen)} />
+            <DetailRow label="Reviewed" value={String(sampleReviewed)} />
+            <DetailRow label="Audit entries" value={String(decisions.length)} />
+          </DashboardCard>
 
           <DashboardCard
             title="Validation coverage"
@@ -159,7 +172,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   detailLabel: {
-    width: 74,
+    width: 88,
     color: Colours.textMuted,
     fontSize: 13,
     fontWeight: '700',
