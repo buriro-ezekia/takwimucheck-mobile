@@ -2,8 +2,6 @@
 
 TakwimuCheck is a mobile-first survey data quality assurance application for supervisors, data managers and researchers.
 
-It is designed around a simple workflow:
-
 ```text
 Upload → Validate → Review → Report
 ```
@@ -12,18 +10,20 @@ The mobile application will connect to the existing TakwimuCheck validation back
 
 ## Current status
 
-This branch contains the first complete product shell built with Expo SDK 57, React Native, TypeScript and Expo Router.
+The application is built with Expo SDK 57, React Native, TypeScript and Expo Router.
 
-Implemented in the product shell:
+Implemented:
 
 - TakwimuCheck home dashboard;
 - synthetic demonstration project;
 - transparent validation summary;
 - filterable issue register;
-- Pro subscription preview;
 - settings, privacy and connectivity safeguards;
 - typed backend API foundation;
-- environment-variable template;
+- RevenueCat SDK and Paywalls integration foundation;
+- `takwimucheck_pro` entitlement checks;
+- paywall presentation and restore-purchases actions;
+- EAS Android development and preview build profiles;
 - protected local environment files.
 
 The demonstration data are fictional and contain no personal or confidential respondent information.
@@ -38,15 +38,30 @@ The demonstration data are fictional and contain no personal or confidential res
 - Mobile-first and low-connectivity optimised, not fully offline.
 - Human approval before correction or final acceptance.
 
-## Planned monetisation
+## RevenueCat configuration
 
-RevenueCat will manage one Pro entitlement:
+RevenueCat manages one Pro entitlement:
 
 ```text
 takwimucheck_pro
 ```
 
-Monthly and annual products will unlock the same entitlement. The current product shell does not execute purchases; RevenueCat will be added after Android product-shell verification.
+Monthly and annual products must both unlock this entitlement. The app loads the current offering remotely and does not hard-code prices.
+
+RevenueCat Test Store requires a public SDK key in the local environment:
+
+```text
+EXPO_PUBLIC_REVENUECAT_API_KEY
+```
+
+Production builds can later use:
+
+```text
+EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY
+EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
+```
+
+Never place RevenueCat secret keys in the mobile app.
 
 ## Local setup
 
@@ -55,7 +70,8 @@ Requirements:
 - Node.js LTS;
 - npm;
 - Git;
-- Expo-compatible Android development environment for native testing.
+- Expo account for EAS Build;
+- Android phone or emulator for native purchase testing.
 
 Clone and install:
 
@@ -65,44 +81,59 @@ Set-Location takwimucheck-mobile
 npm install
 ```
 
-Create a local environment file:
+Create the local environment file:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Run the web application:
+Add the RevenueCat Test Store public SDK key to `.env`.
+
+Run the web preview:
 
 ```powershell
 npm run web
 ```
 
-Run Expo development mode:
+The web preview displays subscription readiness but does not initiate native store purchases.
 
-```powershell
-npm start
-```
-
-Check TypeScript:
+Run TypeScript and Expo checks:
 
 ```powershell
 npm run typecheck
-```
-
-Check Expo project health:
-
-```powershell
 npx expo-doctor
 ```
 
-## Environment variables
+## Android development build
 
-```text
-EXPO_PUBLIC_API_BASE_URL
-EXPO_PUBLIC_REVENUECAT_API_KEY
+Install and authenticate the EAS CLI:
+
+```powershell
+npm install --global eas-cli
+eas login
+eas whoami
 ```
 
-Do not commit `.env` or production credentials. Only public mobile SDK keys may be placed in the application environment.
+Initialise the Expo project on EAS when prompted:
+
+```powershell
+eas init
+eas build:configure
+```
+
+Create the installable Android development build:
+
+```powershell
+eas build --platform android --profile development
+```
+
+Install the resulting APK on the Android test phone, then start Metro for the development client:
+
+```powershell
+npm run start:dev-client
+```
+
+A development build is required for real RevenueCat Test Store purchases. Expo Go can preview JavaScript flows but cannot perform the full native purchase transaction.
 
 ## Main routes
 
@@ -111,19 +142,19 @@ src/app/index.tsx                Home dashboard
 src/app/demo.tsx                 Synthetic project overview
 src/app/validation-summary.tsx   Validation coverage and issue summary
 src/app/issues.tsx               Filterable sample issue register
-src/app/upgrade.tsx              Pro subscription preview
-src/app/settings.tsx             Configuration and safeguards
+src/app/upgrade.tsx              RevenueCat Pro subscription screen
+src/app/settings.tsx             Configuration, safeguards and purchase status
 ```
 
 ## Next milestones
 
-1. Verify the product shell on web and Android.
-2. Add automated component and route tests.
-3. Connect authentication and project APIs.
-4. Implement CSV upload and validation-run orchestration.
-5. Add issue-review decisions.
-6. Integrate RevenueCat Test Store, paywall, entitlement checks and restore purchases.
-7. Produce an Android development build and begin Google Play testing.
+1. Complete the first RevenueCat Test Store purchase.
+2. Confirm `takwimucheck_pro` becomes active.
+3. Confirm restore purchases works.
+4. Connect authentication and project APIs.
+5. Implement CSV upload and validation-run orchestration.
+6. Add issue-review decisions and export workflows.
+7. Begin Google Play testing.
 
 ## Licence
 

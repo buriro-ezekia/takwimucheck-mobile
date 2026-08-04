@@ -1,4 +1,4 @@
-// Presents configuration, privacy and purchase-readiness information for TakwimuCheck.
+// Presents configuration, privacy and live RevenueCat readiness information.
 
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,16 +7,22 @@ import { AppHeader } from '@/components/app-header';
 import { DashboardCard } from '@/components/dashboard-card';
 import { PrimaryButton } from '@/components/primary-button';
 import { Colours } from '@/constants/colours';
+import { useRevenueCat } from '@/providers/revenuecat-provider';
 import { getApiConfiguration } from '@/services/api';
+import { REVENUECAT_ENTITLEMENT_ID } from '@/services/revenuecat';
 
 export default function SettingsScreen() {
   const apiConfiguration = getApiConfiguration();
+  const { snapshot, loading, actionInProgress, refresh, restorePurchases } = useRevenueCat();
 
-  const showRestorePlaceholder = () => {
-    Alert.alert(
-      'Restore purchases is not active yet',
-      'This action will call RevenueCat after the native SDK integration milestone is complete.',
-    );
+  const handleRestore = async () => {
+    const message = await restorePurchases();
+    Alert.alert('Restore purchases', message);
+  };
+
+  const handleRefresh = async () => {
+    const nextSnapshot = await refresh();
+    Alert.alert('RevenueCat status', nextSnapshot.message);
   };
 
   const showDeletionPlaceholder = () => {
@@ -36,7 +42,7 @@ export default function SettingsScreen() {
             showBack
             eyebrow="Application settings"
             title="Configuration and safeguards"
-            subtitle="Review the current development environment and the controls planned before production data is introduced."
+            subtitle="Review the current development environment, subscription state and controls required before production survey data is introduced."
           />
 
           <DashboardCard title="Backend connection">
@@ -50,8 +56,50 @@ export default function SettingsScreen() {
               value={apiConfiguration.baseUrl ?? 'Add EXPO_PUBLIC_API_BASE_URL to a local .env file'}
             />
             <Text style={styles.helperText}>
-              The current product shell uses only synthetic local data and does not send records to a server.
+              The current product shell uses synthetic local data and does not send survey records to a server.
             </Text>
+          </DashboardCard>
+
+          <DashboardCard title="RevenueCat purchases">
+            <SettingRow
+              label="SDK status"
+              value={
+                loading
+                  ? 'Checking'
+                  : snapshot.configured
+                    ? 'Configured'
+                    : snapshot.state === 'unsupported-platform'
+                      ? 'Native build required'
+                      : 'Not configured'
+              }
+              tone={snapshot.configured ? 'success' : 'warning'}
+            />
+            <SettingRow label="Platform" value={snapshot.platform} />
+            <SettingRow label="Entitlement" value={REVENUECAT_ENTITLEMENT_ID} />
+            <SettingRow
+              label="Current offering"
+              value={snapshot.currentOfferingAvailable ? 'Available' : 'Not available'}
+              tone={snapshot.currentOfferingAvailable ? 'success' : 'warning'}
+            />
+            <SettingRow label="Packages found" value={String(snapshot.packageCount)} />
+            <SettingRow
+              label="Pro access"
+              value={snapshot.entitlementActive ? 'Active' : 'Inactive'}
+              tone={snapshot.entitlementActive ? 'success' : 'neutral'}
+            />
+            <Text style={styles.helperText}>{snapshot.message}</Text>
+            <PrimaryButton
+              label={actionInProgress ? 'Please wait…' : 'Restore purchases'}
+              variant="secondary"
+              disabled={actionInProgress}
+              onPress={handleRestore}
+            />
+            <PrimaryButton
+              label={loading ? 'Refreshing…' : 'Refresh purchase status'}
+              variant="secondary"
+              disabled={loading || actionInProgress}
+              onPress={handleRefresh}
+            />
           </DashboardCard>
 
           <DashboardCard title="Data safeguards">
@@ -70,17 +118,6 @@ export default function SettingsScreen() {
             <SafeguardItem
               title="Explicit deletion controls"
               description="Project and account deletion will be visible application actions, not support-only procedures."
-            />
-          </DashboardCard>
-
-          <DashboardCard title="Purchases">
-            <SettingRow label="RevenueCat SDK" value="Not installed" tone="warning" />
-            <SettingRow label="Entitlement" value="takwimucheck_pro" />
-            <SettingRow label="Products" value="Monthly and annual subscriptions planned" />
-            <PrimaryButton
-              label="Restore purchases"
-              variant="secondary"
-              onPress={showRestorePlaceholder}
             />
           </DashboardCard>
 

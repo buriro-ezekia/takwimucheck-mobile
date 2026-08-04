@@ -1,4 +1,4 @@
-// Previews the TakwimuCheck subscription boundary before RevenueCat is connected.
+// Presents the live RevenueCat subscription boundary for TakwimuCheck Pro.
 
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,6 +6,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader } from '@/components/app-header';
 import { PrimaryButton } from '@/components/primary-button';
 import { Colours } from '@/constants/colours';
+import { useRevenueCat } from '@/providers/revenuecat-provider';
+import { REVENUECAT_ENTITLEMENT_ID } from '@/services/revenuecat';
 
 const freeFeatures = [
   'Synthetic demonstration project',
@@ -23,12 +25,29 @@ const proFeatures = [
 ];
 
 export default function UpgradeScreen() {
-  const showPlaceholder = () => {
-    Alert.alert(
-      'RevenueCat integration pending',
-      'The native purchase flow will be connected after the product shell is verified on Android. No purchase has been attempted.',
-    );
+  const { snapshot, loading, actionInProgress, refresh, showPaywall, restorePurchases } =
+    useRevenueCat();
+
+  const handlePaywall = async () => {
+    const message = await showPaywall();
+    Alert.alert('TakwimuCheck Pro', message);
   };
+
+  const handleRestore = async () => {
+    const message = await restorePurchases();
+    Alert.alert('Restore purchases', message);
+  };
+
+  const handleRefresh = async () => {
+    const nextSnapshot = await refresh();
+    Alert.alert('RevenueCat status', nextSnapshot.message);
+  };
+
+  const statusTitle = snapshot.entitlementActive
+    ? 'TakwimuCheck Pro is active'
+    : snapshot.state === 'ready'
+      ? 'Ready for a Test Store purchase'
+      : 'RevenueCat setup required';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -38,17 +57,36 @@ export default function UpgradeScreen() {
         <View style={styles.container}>
           <AppHeader
             showBack
-            eyebrow="Subscription preview"
+            eyebrow="RevenueCat Test Store"
             title="Unlock TakwimuCheck Pro"
-            subtitle="The production app will offer monthly and annual plans through RevenueCat while one entitlement controls Pro access."
+            subtitle="Monthly and annual products share one entitlement, while prices and packages are loaded from the current RevenueCat offering."
           />
 
-          <View style={styles.statusCard}>
-            <Text style={styles.statusTitle}>Integration status</Text>
-            <Text style={styles.statusText}>
-              Product shell only. Purchases are disabled until the RevenueCat SDK, Test Store products,
-              paywall and entitlement verification are implemented in a native development build.
+          <View
+            style={[
+              styles.statusCard,
+              snapshot.entitlementActive ? styles.activeStatusCard : styles.pendingStatusCard,
+            ]}>
+            <Text
+              style={[
+                styles.statusTitle,
+                snapshot.entitlementActive ? styles.activeStatusTitle : styles.pendingStatusTitle,
+              ]}>
+              {statusTitle}
             </Text>
+            <Text style={styles.statusText}>{loading ? 'Checking RevenueCat…' : snapshot.message}</Text>
+            <View style={styles.statusFacts}>
+              <StatusFact label="Platform" value={snapshot.platform} />
+              <StatusFact
+                label="Current offering"
+                value={snapshot.currentOfferingAvailable ? 'Available' : 'Not available'}
+              />
+              <StatusFact label="Packages" value={String(snapshot.packageCount)} />
+              <StatusFact
+                label="Pro access"
+                value={snapshot.entitlementActive ? 'Active' : 'Inactive'}
+              />
+            </View>
           </View>
 
           <View style={styles.planGrid}>
@@ -66,27 +104,53 @@ export default function UpgradeScreen() {
           </View>
 
           <View style={styles.entitlementCard}>
-            <Text style={styles.entitlementLabel}>Planned entitlement identifier</Text>
-            <Text style={styles.entitlementValue}>takwimucheck_pro</Text>
+            <Text style={styles.entitlementLabel}>Entitlement identifier</Text>
+            <Text style={styles.entitlementValue}>{REVENUECAT_ENTITLEMENT_ID}</Text>
             <Text style={styles.entitlementHelp}>
-              Both monthly and annual products will unlock the same Pro entitlement.
+              The monthly and annual Test Store products must both unlock this entitlement.
             </Text>
           </View>
 
-          <PrimaryButton label="Preview purchase step" onPress={showPlaceholder} />
           <PrimaryButton
-            label="Restore purchases"
+            label={
+              snapshot.entitlementActive
+                ? 'Pro access is active'
+                : actionInProgress
+                  ? 'Opening RevenueCat…'
+                  : 'View subscription options'
+            }
+            disabled={snapshot.entitlementActive || actionInProgress}
+            onPress={handlePaywall}
+          />
+          <PrimaryButton
+            label={actionInProgress ? 'Please wait…' : 'Restore purchases'}
             variant="secondary"
-            onPress={showPlaceholder}
+            disabled={actionInProgress}
+            onPress={handleRestore}
+          />
+          <PrimaryButton
+            label={loading ? 'Refreshing…' : 'Refresh RevenueCat status'}
+            variant="secondary"
+            disabled={loading || actionInProgress}
+            onPress={handleRefresh}
           />
 
           <Text style={styles.footerText}>
-            Subscription prices will be loaded from the active RevenueCat offering rather than
-            hard-coded in the app.
+            Test Store purchases behave like subscriptions for entitlement testing but do not charge
+            real money. A native development build is required for the full purchase flow.
           </Text>
         </View>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function StatusFact({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.statusFact}>
+      <Text style={styles.statusFactLabel}>{label}</Text>
+      <Text style={styles.statusFactValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -136,20 +200,52 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   statusCard: {
-    backgroundColor: Colours.warningSoft,
     borderRadius: 18,
     padding: 18,
-    gap: 6,
+    gap: 10,
+  },
+  activeStatusCard: {
+    backgroundColor: Colours.successSoft,
+  },
+  pendingStatusCard: {
+    backgroundColor: Colours.warningSoft,
   },
   statusTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  activeStatusTitle: {
+    color: Colours.success,
+  },
+  pendingStatusTitle: {
     color: Colours.warning,
-    fontSize: 15,
-    fontWeight: '800',
   },
   statusText: {
     color: Colours.text,
     fontSize: 14,
     lineHeight: 21,
+  },
+  statusFacts: {
+    gap: 8,
+    paddingTop: 4,
+  },
+  statusFact: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  statusFactLabel: {
+    color: Colours.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  statusFactValue: {
+    flex: 1,
+    color: Colours.text,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
   },
   planGrid: {
     gap: 14,
