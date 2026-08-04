@@ -1,5 +1,6 @@
 // Presents configuration, backend access, privacy and live RevenueCat information.
 
+import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -76,6 +77,33 @@ export default function SettingsScreen() {
       const message = describeApiError(error);
       setBackendCheck({ status: 'error', message, snapshot: null });
       Alert.alert('Backend connection', message);
+    }
+  };
+
+  const handlePasteAccessKey = async () => {
+    try {
+      const clipboardValue = (await Clipboard.getStringAsync()).trim();
+
+      if (!clipboardValue) {
+        Alert.alert(
+          'Paste access key',
+          'The clipboard does not contain a text access key.',
+        );
+        return;
+      }
+
+      setAccessKey(clipboardValue);
+      setShowAccessKey(false);
+
+      Alert.alert(
+        'Access key pasted',
+        'The clipboard key is now held in memory only. Press Test protected access to verify it.',
+      );
+    } catch {
+      Alert.alert(
+        'Paste access key',
+        'The clipboard could not be read. You can still paste manually into the field.',
+      );
     }
   };
 

@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   verify:
-    name: Dependency, typecheck and web export
+    name: Dependency, route generation, typecheck and web export
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -45,11 +45,11 @@ jobs:
         continue-on-error: true
         run: npx expo install --check
 
-      - name: Run TypeScript checks
-        run: npm run typecheck
-
       - name: Check Expo project health
         run: npx --yes expo-doctor
 
-      - name: Export web application
+      - name: Export web application and generate route types
         run: npx expo export --platform web --output-dir dist-ci
+
+      - name: Run TypeScript checks
+        run: npm run typecheck

@@ -1,4 +1,4 @@
-// Renders the TakwimuCheck home dashboard and entry points into the demonstration workflow.
+// Renders the TakwimuCheck home dashboard and entry points into live and demonstration workflows.
 
 import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -49,25 +49,36 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.actionStack}>
-              <PrimaryButton label="Open demonstration project" onPress={() => router.push('/demo')} />
               <PrimaryButton
-                label="Review sample issues"
+                label="Upload and validate a CSV"
+                onPress={() => router.push('/upload')}
+              />
+              <PrimaryButton
+                label="Open demonstration project"
                 variant="secondary"
-                onPress={() => router.push('/issues')}
+                onPress={() => router.push('/demo')}
               />
             </View>
+          </View>
+
+          <View style={styles.pilotNotice}>
+            <Text style={styles.pilotNoticeTitle}>Controlled-pilot CSV workflow</Text>
+            <Text style={styles.pilotNoticeText}>
+              Authorised pilot sessions can now select a UTF-8 CSV, review server-side preflight
+              results and deliberately start a protected validation run.
+            </Text>
           </View>
 
           <View style={styles.demoNotice}>
             <Text style={styles.demoNoticeTitle}>Synthetic demonstration data</Text>
             <Text style={styles.demoNoticeText}>
-              The records and issues shown in this product shell are fictional and contain no
-              personal or confidential survey information.
+              The records and issues shown in the public product demonstration are fictional and
+              contain no personal or confidential survey information.
             </Text>
           </View>
 
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Latest quality snapshot</Text>
+            <Text style={styles.sectionTitle}>Latest demonstration snapshot</Text>
             <Text style={styles.sectionSubtitle}>{demoProject.name}</Text>
           </View>
 
@@ -82,14 +93,26 @@ export default function HomeScreen() {
 
           <View style={styles.cardStack}>
             <DashboardCard
-              title="Validation summary"
-              description="Inspect coverage, rule groups and issue severity before reviewing individual records."
+              title="Upload and validate"
+              description="Select one CSV, run protected preflight checks and start a configured validation run."
+              onPress={() => router.push('/upload')}
+            />
+
+            <DashboardCard
+              title="Protected backend summary"
+              description="Inspect stored validation-run and issue metadata without displaying observed respondent values."
+              onPress={() => router.push('/protected-data')}
+            />
+
+            <DashboardCard
+              title="Demonstration validation summary"
+              description="Inspect fictional coverage, rule groups and issue severity before reviewing sample records."
               onPress={() => router.push('/validation-summary')}
             />
 
             <DashboardCard
-              title="Issue register"
-              description="Filter errors and warnings, then inspect the record, variable and expected rule."
+              title="Sample issue register"
+              description="Filter fictional errors and warnings, then test the human review workflow."
               onPress={() => router.push('/issues')}
             />
 
@@ -101,14 +124,14 @@ export default function HomeScreen() {
 
             <DashboardCard
               title="Settings"
-              description="Review API configuration, data safeguards and purchase-restoration readiness."
+              description="Review API configuration, protected access, data safeguards and purchase-restoration readiness."
               onPress={() => router.push('/settings')}
             />
           </View>
 
           <Text style={styles.footerText}>
-            Mobile-first and low-connectivity optimised. Upload, validation, exports and purchases
-            will require an internet connection in the production release.
+            Mobile-first and low-connectivity optimised. Upload, validation, protected refreshes,
+            exports and purchases require an internet connection.
           </Text>
         </View>
       </ScrollView>
@@ -220,6 +243,22 @@ const styles = StyleSheet.create({
   },
   actionStack: {
     gap: 10,
+  },
+  pilotNotice: {
+    backgroundColor: Colours.brandSoft,
+    borderRadius: 18,
+    padding: 18,
+    gap: 5,
+  },
+  pilotNoticeTitle: {
+    color: Colours.brandDark,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  pilotNoticeText: {
+    color: Colours.text,
+    fontSize: 14,
+    lineHeight: 21,
   },
   demoNotice: {
     backgroundColor: Colours.infoSoft,
