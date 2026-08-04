@@ -1,6 +1,11 @@
-// Provides synthetic survey-quality data for the first TakwimuCheck product shell.
+// Provides synthetic survey-quality data for the TakwimuCheck demonstration workflow.
 
-import type { DemoProject, RuleCoverageItem, ValidationIssue } from '@/types/validation';
+import type {
+  DemoProject,
+  ReviewDecision,
+  RuleCoverageItem,
+  ValidationIssue,
+} from '@/types/validation';
 
 export const demoProject: DemoProject = {
   id: 'demo-household-survey',
@@ -91,7 +96,7 @@ export const demoIssues: ValidationIssue[] = [
     title: 'Skip instruction not followed',
     message: 'A pregnancy follow-up response exists where the eligibility condition was not met.',
     severity: 'error',
-    status: 'reviewed',
+    status: 'accepted',
     recordId: 'HH-0114',
     variable: 'pregnancy_follow_up',
     observedValue: 'Yes',
@@ -130,12 +135,40 @@ export const demoIssues: ValidationIssue[] = [
     title: 'Possible duplicate household',
     message: 'Two records share the same location, household head and telephone fragment.',
     severity: 'warning',
-    status: 'reviewed',
+    status: 'correction-proposed',
     recordId: 'HH-0311 / HH-0312',
     variable: 'household_identity',
     observedValue: 'High similarity match',
     expected: 'One distinct record per household',
     category: 'Duplicate detection',
+  },
+];
+
+export const demoReviewDecisions: ReviewDecision[] = [
+  {
+    id: 'DEC-001',
+    issueId: 'ISS-003',
+    action: 'accept',
+    reason: 'The enumerator note confirms that the follow-up response was entered in error and the finding is valid.',
+    reviewer: 'Amina K.',
+    createdAt: '2026-08-04T07:40:00.000Z',
+  },
+  {
+    id: 'DEC-002',
+    issueId: 'ISS-005',
+    action: 'defer',
+    reason: 'The field team must confirm whether code 97 was introduced as a local other-specify code.',
+    reviewer: 'Joseph M.',
+    createdAt: '2026-08-04T07:52:00.000Z',
+  },
+  {
+    id: 'DEC-003',
+    issueId: 'ISS-006',
+    action: 'propose-correction',
+    reason: 'The second record appears to be a duplicate created during synchronisation and should be flagged for removal after supervisor approval.',
+    reviewer: 'Amina K.',
+    proposedValue: 'Retain HH-0311 and mark HH-0312 as a duplicate pending approval',
+    createdAt: '2026-08-04T08:05:00.000Z',
   },
 ];
 
