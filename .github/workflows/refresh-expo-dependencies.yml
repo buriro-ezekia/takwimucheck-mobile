@@ -1,0 +1,58 @@
+# One-time branch workflow that refreshes Expo SDK 57-compatible dependency pins.
+name: Refresh Expo dependencies
+
+on:
+  push:
+    branches:
+      - feat/backend-readiness-hardening
+    paths:
+      - .github/workflows/refresh-expo-dependencies.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/backend-readiness-hardening
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Align Expo SDK dependencies
+        run: >-
+          npx expo install
+          @expo/ui
+          expo
+          expo-constants
+          expo-image
+          expo-linking
+          expo-router
+          react-native-gesture-handler
+
+      - name: Commit refreshed dependency files
+        shell: bash
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "Expo dependency files already match the current SDK recommendations."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "Align Expo SDK 57 dependencies"
+          git push origin HEAD:feat/backend-readiness-hardening
