@@ -2,18 +2,15 @@
 
 import {
   createContext,
-  PropsWithChildren,
   useCallback,
   useContext,
   useMemo,
   useState,
+  type ReactNode,
 } from 'react';
 
-import {
-  checkProtectedAccess,
-  describeApiError,
-  ProtectedAccessSnapshot,
-} from '@/services/api';
+import { checkProtectedAccess, describeApiError } from '@/services/api';
+import type { ProtectedAccessSnapshot } from '@/services/api';
 
 export type ProtectedAccessStatus = 'idle' | 'checking' | 'success' | 'error';
 
@@ -33,7 +30,7 @@ const BackendAccessContext = createContext<BackendAccessContextValue | null>(nul
 const initialMessage =
   'Enter the controlled-pilot access key. It remains in memory only until the app closes or you clear it.';
 
-export function BackendAccessProvider({ children }: PropsWithChildren) {
+export function BackendAccessProvider({ children }: { children: ReactNode }) {
   const [accessKey, setAccessKeyState] = useState('');
   const [status, setStatus] = useState<ProtectedAccessStatus>('idle');
   const [message, setMessage] = useState(initialMessage);
