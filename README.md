@@ -23,9 +23,12 @@ Implemented:
 - required proposed value for correction proposals;
 - timestamped decision history and dynamic review counters;
 - explicit demonstration reset control;
-- settings, privacy and connectivity safeguards;
-- typed backend readiness client aligned with the deployed public routes;
+- typed backend readiness client aligned with deployed public routes;
 - live health, version and runtime-status connection test;
+- memory-only controlled-pilot API-key entry;
+- protected validation-run and issue-register retrieval;
+- privacy-minimised protected-data summary that omits observed respondent values;
+- explicit clearing of the session credential and protected response cache;
 - RevenueCat Purchases and Paywalls integration;
 - Monthly and Yearly Test Store packages;
 - published RevenueCat paywall;
@@ -35,7 +38,7 @@ Implemented:
 - protected local environment files;
 - GitHub Actions checks for TypeScript, Expo compatibility, project health and web export.
 
-The demonstration data, issues and review decisions are fictional and contain no personal or confidential respondent information.
+The public demonstration data, issues and review decisions are fictional and contain no personal or confidential respondent information.
 
 ## Product principles
 
@@ -46,6 +49,7 @@ The demonstration data, issues and review decisions are fictional and contain no
 - Visible validation and metadata coverage.
 - Mobile-first and low-connectivity optimised, not fully offline.
 - Human approval before correction or final acceptance.
+- Secrets are never embedded in public mobile configuration.
 
 ## Interactive review demonstration
 
@@ -67,6 +71,26 @@ Each action records:
 - an ISO timestamp.
 
 Review state is shared across routes for the current app session. The demonstration reset control restores the seeded synthetic issues and audit history. No review action changes a source record.
+
+## Controlled-pilot protected access
+
+The backend already protects storage-backed routes with the `x-api-key` header when `ASQA_API_KEY` is configured. TakwimuCheck Mobile can now open:
+
+```text
+GET /validation-runs
+GET /issue-register
+```
+
+The pilot credential is entered manually in **Settings → Controlled-pilot protected access**. It is:
+
+- held only in React state for the active app session;
+- never written to `.env.local`, AsyncStorage, logs or repository files;
+- never displayed in the protected summary;
+- cleared explicitly by the user or when the app process closes.
+
+This mechanism is suitable only for a controlled pilot. A production release should replace the shared API key with user authentication, short-lived tokens, role-based authorisation and secure server-side session handling.
+
+The protected summary displays validation-run metadata and issue identifiers, rules, severity and review status. It deliberately omits observed respondent values.
 
 ## RevenueCat configuration
 
@@ -106,7 +130,7 @@ The following have been completed in an Android development build:
 
 ## Backend readiness
 
-The mobile client currently targets the backend routes that already exist:
+The public readiness client targets:
 
 ```text
 GET /health
@@ -114,7 +138,7 @@ GET /version
 GET /runtime-status
 ```
 
-The Settings screen can call these routes together and report:
+The Settings screen reports:
 
 - service reachability;
 - service name;
@@ -122,8 +146,6 @@ The Settings screen can call these routes together and report:
 - whether protected storage routes are enabled;
 - whether CORS is enabled;
 - the time of the last successful check.
-
-The backend also exposes storage and review routes when database storage is configured, but mobile authentication and protected-route access are intentionally deferred to the next production batch.
 
 ## Local setup
 
@@ -149,8 +171,6 @@ Create the private local environment file:
 Copy-Item .env.example .env.local
 ```
 
-Set the appropriate values in `.env.local`.
-
 For backend testing:
 
 ```text
@@ -159,13 +179,13 @@ EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
 
 Use `http://10.0.2.2:8000` for an Android emulator. A physical phone must use the computer's LAN address while both devices are on the same network.
 
+Do not add the protected API key to any `EXPO_PUBLIC` variable. Enter it through the Settings screen only.
+
 Run the web preview:
 
 ```powershell
 npm run web
 ```
-
-The web preview can test public backend readiness and the interactive synthetic review workflow, but it does not initiate native store purchases.
 
 Run project checks:
 
@@ -174,6 +194,22 @@ npm run typecheck
 npx expo install --check
 npx expo-doctor
 ```
+
+## Controlled-pilot backend start
+
+From the backend repository, choose a private local API key interactively and start the SQLite-backed API:
+
+```powershell
+$env:ASQA_DATABASE_PATH = Join-Path (Get-Location) "runtime\pilot-quality.db"
+$env:ASQA_CORS_ORIGINS = "http://localhost:8081,http://127.0.0.1:8081"
+$env:ASQA_API_KEY = Read-Host "Enter a private controlled-pilot API key"
+
+& ".\.venv\Scripts\python.exe" -m uvicorn automated_survey_qa.api.main:app `
+  --host 0.0.0.0 `
+  --port 8000
+```
+
+The protected routes can return empty collections when the database contains no validation runs or issues. A successful empty response still confirms that storage routing and API-key protection are working.
 
 ## Android development build
 
@@ -206,8 +242,9 @@ src/app/index.tsx                Home dashboard
 src/app/demo.tsx                 Synthetic project and live sample-review overview
 src/app/validation-summary.tsx   Validation coverage and issue summary
 src/app/issues.tsx               Interactive sample issue register and audit history
+src/app/protected-data.tsx       Protected validation-run and issue metadata summary
 src/app/upgrade.tsx              RevenueCat Pro subscription screen
-src/app/settings.tsx             Backend, safeguards and purchase status
+src/app/settings.tsx             Backend, protected access, safeguards and purchase status
 ```
 
 ## Delivery sequence
@@ -219,12 +256,13 @@ Completed:
 3. RevenueCat Test Store integration and verified Android purchase flow.
 4. Backend readiness client and release hardening.
 5. Interactive issue-review workflow with local audit history.
+6. Controlled-pilot protected-route access with a memory-only credential.
 
 Next production batches:
 
-1. Backend authentication and protected-route access.
-2. CSV selection, upload preflight and validation-run orchestration.
-3. Real issue-register retrieval, review submission and export workflows.
+1. CSV selection, upload preflight and validation-run orchestration.
+2. Real issue-review submission and export workflows.
+3. Production identity, short-lived tokens and role-based authorisation.
 4. Google Play subscription products, internal testing and store-release preparation.
 
 ## Licence
