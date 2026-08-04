@@ -108,11 +108,25 @@ export class ApiError extends Error {
 
   constructor(message: string, code: ApiErrorCode, status = 0, details?: unknown) {
     super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
     this.details = details;
   }
+}
+
+function isApiError(error: unknown): error is ApiError {
+  if (error instanceof ApiError) {
+    return true;
+  }
+
+  return (
+    error instanceof Error &&
+    error.name === 'ApiError' &&
+    'code' in error &&
+    typeof (error as { code?: unknown }).code === 'string'
+  );
 }
 
 export function getApiConfiguration(): ApiConfiguration {
@@ -266,7 +280,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
     return payload as T;
   } catch (error) {
-    if (error instanceof ApiError) {
+    if (isApiError(error)) {
       throw error;
     }
 
@@ -289,7 +303,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 export function describeApiError(error: unknown): string {
-  if (error instanceof ApiError) {
+  if (isApiError(error)) {
     return error.message;
   }
 
