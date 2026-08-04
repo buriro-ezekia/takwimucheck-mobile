@@ -1,5 +1,6 @@
-// Presents configuration, privacy and live RevenueCat readiness information.
+// Presents configuration, backend readiness, privacy and live RevenueCat information.
 
+import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -8,12 +9,51 @@ import { DashboardCard } from '@/components/dashboard-card';
 import { PrimaryButton } from '@/components/primary-button';
 import { Colours } from '@/constants/colours';
 import { useRevenueCat } from '@/providers/revenuecat-provider';
-import { getApiConfiguration } from '@/services/api';
+import {
+  BackendConnectionSnapshot,
+  checkBackendConnection,
+  describeApiError,
+  getApiConfiguration,
+} from '@/services/api';
 import { REVENUECAT_ENTITLEMENT_ID } from '@/services/revenuecat';
+
+type BackendCheckState =
+  | { status: 'idle'; message: string; snapshot: null }
+  | { status: 'checking'; message: string; snapshot: null }
+  | { status: 'success'; message: string; snapshot: BackendConnectionSnapshot }
+  | { status: 'error'; message: string; snapshot: null };
+
+const initialBackendState: BackendCheckState = {
+  status: 'idle',
+  message: 'Run a connection test to verify the configured backend.',
+  snapshot: null,
+};
 
 export default function SettingsScreen() {
   const apiConfiguration = getApiConfiguration();
+  const [backendCheck, setBackendCheck] = useState<BackendCheckState>(initialBackendState);
   const { snapshot, loading, actionInProgress, refresh, restorePurchases } = useRevenueCat();
+
+  const handleBackendCheck = async () => {
+    setBackendCheck({
+      status: 'checking',
+      message: 'Contacting the health, version and runtime-status endpoints…',
+      snapshot: null,
+    });
+
+    try {
+      const nextSnapshot = await checkBackendConnection();
+      setBackendCheck({
+        status: 'success',
+        message: 'The TakwimuCheck backend responded successfully.',
+        snapshot: nextSnapshot,
+      });
+    } catch (error) {
+      const message = describeApiError(error);
+      setBackendCheck({ status: 'error', message, snapshot: null });
+      Alert.alert('Backend connection', message);
+    }
+  };
 
   const handleRestore = async () => {
     const message = await restorePurchases();
@@ -32,6 +72,9 @@ export default function SettingsScreen() {
     );
   };
 
+  const backendStatus = getBackendStatusLabel(apiConfiguration.configured, backendCheck.status);
+  const backendTone = getBackendStatusTone(apiConfiguration.configured, backendCheck.status);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
@@ -42,22 +85,53 @@ export default function SettingsScreen() {
             showBack
             eyebrow="Application settings"
             title="Configuration and safeguards"
-            subtitle="Review the current development environment, subscription state and controls required before production survey data is introduced."
+            subtitle="Verify the backend, review subscription state and confirm the controls required before production survey data is introduced."
           />
 
           <DashboardCard title="Backend connection">
-            <SettingRow
-              label="Status"
-              value={apiConfiguration.configured ? 'Configured' : 'Not configured'}
-              tone={apiConfiguration.configured ? 'success' : 'warning'}
-            />
+            <SettingRow label="Status" value={backendStatus} tone={backendTone} />
             <SettingRow
               label="API base URL"
-              value={apiConfiguration.baseUrl ?? 'Add EXPO_PUBLIC_API_BASE_URL to a local .env file'}
+              value={apiConfiguration.baseUrl ?? 'Add EXPO_PUBLIC_API_BASE_URL to .env.local'}
             />
-            <Text style={styles.helperText}>
-              The current product shell uses synthetic local data and does not send survey records to a server.
+
+            {backendCheck.snapshot ? (
+              <>
+                <SettingRow label="Service" value={backendCheck.snapshot.service} />
+                <SettingRow label="Version" value={backendCheck.snapshot.version} />
+                <SettingRow
+                  label="Protected storage routes"
+                  value={backendCheck.snapshot.protectedStorageRoutes ? 'Enabled' : 'Disabled'}
+                  tone={backendCheck.snapshot.protectedStorageRoutes ? 'success' : 'neutral'}
+                />
+                <SettingRow
+                  label="CORS"
+                  value={backendCheck.snapshot.corsEnabled ? 'Enabled' : 'Disabled'}
+                />
+                <SettingRow
+                  label="Last successful check"
+                  value={new Date(backendCheck.snapshot.checkedAt).toLocaleString()}
+                />
+              </>
+            ) : null}
+
+            <Text
+              style={[
+                styles.helperText,
+                backendCheck.status === 'error' && styles.errorHelperText,
+              ]}>
+              {backendCheck.message}
             </Text>
+            <Text style={styles.helperText}>
+              This readiness check sends no survey records. The demonstration workflow remains local
+              and synthetic until upload and authentication are connected.
+            </Text>
+            <PrimaryButton
+              label={backendCheck.status === 'checking' ? 'Testing connection…' : 'Test backend connection'}
+              variant="secondary"
+              disabled={backendCheck.status === 'checking'}
+              onPress={handleBackendCheck}
+            />
           </DashboardCard>
 
           <DashboardCard title="RevenueCat purchases">
@@ -143,6 +217,28 @@ export default function SettingsScreen() {
   );
 }
 
+function getBackendStatusLabel(
+  configured: boolean,
+  status: BackendCheckState['status'],
+): string {
+  if (!configured) return 'Not configured';
+  if (status === 'checking') return 'Checking';
+  if (status === 'success') return 'Reachable';
+  if (status === 'error') return 'Unavailable';
+  return 'Configured — not tested';
+}
+
+function getBackendStatusTone(
+  configured: boolean,
+  status: BackendCheckState['status'],
+): SettingTone {
+  if (status === 'success') return 'success';
+  if (!configured || status === 'error') return 'error';
+  return 'warning';
+}
+
+type SettingTone = 'neutral' | 'success' | 'warning' | 'error';
+
 function SettingRow({
   label,
   value,
@@ -150,7 +246,7 @@ function SettingRow({
 }: {
   label: string;
   value: string;
-  tone?: 'neutral' | 'success' | 'warning';
+  tone?: SettingTone;
 }) {
   return (
     <View style={styles.settingRow}>
@@ -160,6 +256,7 @@ function SettingRow({
           styles.settingValue,
           tone === 'success' && styles.successText,
           tone === 'warning' && styles.warningText,
+          tone === 'error' && styles.errorText,
         ]}>
         {value}
       </Text>
@@ -224,10 +321,16 @@ const styles = StyleSheet.create({
   warningText: {
     color: Colours.warning,
   },
+  errorText: {
+    color: Colours.error,
+  },
   helperText: {
     color: Colours.textMuted,
     fontSize: 12,
     lineHeight: 18,
+  },
+  errorHelperText: {
+    color: Colours.error,
   },
   safeguardItem: {
     flexDirection: 'row',
