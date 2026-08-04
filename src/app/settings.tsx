@@ -1,13 +1,26 @@
-// Presents configuration, backend readiness, privacy and live RevenueCat information.
+// Presents configuration, backend access, privacy and live RevenueCat information.
 
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/app-header';
 import { DashboardCard } from '@/components/dashboard-card';
 import { PrimaryButton } from '@/components/primary-button';
 import { Colours } from '@/constants/colours';
+import {
+  ProtectedAccessStatus,
+  useBackendAccess,
+} from '@/providers/backend-access-provider';
 import { useRevenueCat } from '@/providers/revenuecat-provider';
 import {
   BackendConnectionSnapshot,
@@ -30,9 +43,20 @@ const initialBackendState: BackendCheckState = {
 };
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const apiConfiguration = getApiConfiguration();
   const [backendCheck, setBackendCheck] = useState<BackendCheckState>(initialBackendState);
+  const [showAccessKey, setShowAccessKey] = useState(false);
   const { snapshot, loading, actionInProgress, refresh, restorePurchases } = useRevenueCat();
+  const {
+    accessKey,
+    setAccessKey,
+    status: protectedStatus,
+    message: protectedMessage,
+    snapshot: protectedSnapshot,
+    testAccess,
+    clearAccess,
+  } = useBackendAccess();
 
   const handleBackendCheck = async () => {
     setBackendCheck({
@@ -55,6 +79,17 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleProtectedAccess = async () => {
+    const nextSnapshot = await testAccess();
+
+    if (nextSnapshot) {
+      Alert.alert(
+        'Protected backend access',
+        `Access succeeded. ${nextSnapshot.validationRunCount} validation runs and ${nextSnapshot.issueCount} issues are available.`,
+      );
+    }
+  };
+
   const handleRestore = async () => {
     const message = await restorePurchases();
     Alert.alert('Restore purchases', message);
@@ -74,6 +109,8 @@ export default function SettingsScreen() {
 
   const backendStatus = getBackendStatusLabel(apiConfiguration.configured, backendCheck.status);
   const backendTone = getBackendStatusTone(apiConfiguration.configured, backendCheck.status);
+  const protectedStatusLabel = getProtectedStatusLabel(protectedStatus, Boolean(accessKey.trim()));
+  const protectedTone = getProtectedStatusTone(protectedStatus, Boolean(accessKey.trim()));
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -85,7 +122,7 @@ export default function SettingsScreen() {
             showBack
             eyebrow="Application settings"
             title="Configuration and safeguards"
-            subtitle="Verify the backend, review subscription state and confirm the controls required before production survey data is introduced."
+            subtitle="Verify the backend, open controlled-pilot storage routes, review subscription state and confirm safeguards before production survey data is introduced."
           />
 
           <DashboardCard title="Backend connection">
@@ -123,8 +160,8 @@ export default function SettingsScreen() {
               {backendCheck.message}
             </Text>
             <Text style={styles.helperText}>
-              This readiness check sends no survey records. The demonstration workflow remains local
-              and synthetic until upload and authentication are connected.
+              This readiness check sends no survey records. The synthetic demonstration remains local
+              until upload orchestration is connected.
             </Text>
             <PrimaryButton
               label={backendCheck.status === 'checking' ? 'Testing connection…' : 'Test backend connection'}
@@ -132,6 +169,86 @@ export default function SettingsScreen() {
               disabled={backendCheck.status === 'checking'}
               onPress={handleBackendCheck}
             />
+          </DashboardCard>
+
+          <DashboardCard
+            title="Controlled-pilot protected access"
+            description="Use the API key configured on the local or staging backend. The key stays only in app memory and is cleared when the app closes.">
+            <SettingRow label="Session status" value={protectedStatusLabel} tone={protectedTone} />
+
+            <View style={styles.keyFieldGroup}>
+              <Text style={styles.inputLabel}>Session access key</Text>
+              <View style={styles.keyInputRow}>
+                <TextInput
+                  accessibilityLabel="Protected backend access key"
+                  value={accessKey}
+                  onChangeText={setAccessKey}
+                  placeholder="Enter the controlled-pilot key"
+                  placeholderTextColor={Colours.textMuted}
+                  secureTextEntry={!showAccessKey}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  textContentType="password"
+                  style={styles.keyInput}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={showAccessKey ? 'Hide access key' : 'Show access key'}
+                  onPress={() => setShowAccessKey((current) => !current)}
+                  style={({ pressed }) => [styles.keyToggle, pressed && styles.pressed]}>
+                  <Text style={styles.keyToggleText}>{showAccessKey ? 'Hide' : 'Show'}</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {protectedSnapshot ? (
+              <>
+                <SettingRow
+                  label="Validation runs"
+                  value={String(protectedSnapshot.validationRunCount)}
+                />
+                <SettingRow label="Issues" value={String(protectedSnapshot.issueCount)} />
+                <SettingRow
+                  label="Last protected check"
+                  value={new Date(protectedSnapshot.checkedAt).toLocaleString()}
+                />
+              </>
+            ) : null}
+
+            <Text
+              style={[
+                styles.helperText,
+                protectedStatus === 'error' && styles.errorHelperText,
+              ]}>
+              {protectedMessage}
+            </Text>
+            <Text style={styles.helperText}>
+              Never place this key in an EXPO_PUBLIC variable, source file, screenshot or pull-request
+              comment. This controlled-pilot mechanism is not the final user identity system.
+            </Text>
+
+            <PrimaryButton
+              label={protectedStatus === 'checking' ? 'Testing protected access…' : 'Test protected access'}
+              disabled={protectedStatus === 'checking'}
+              onPress={handleProtectedAccess}
+            />
+
+            {protectedSnapshot ? (
+              <PrimaryButton
+                label="View protected backend summary"
+                variant="secondary"
+                onPress={() => router.push('/protected-data')}
+              />
+            ) : null}
+
+            {accessKey ? (
+              <PrimaryButton
+                label="Clear session access"
+                variant="danger"
+                disabled={protectedStatus === 'checking'}
+                onPress={clearAccess}
+              />
+            ) : null}
           </DashboardCard>
 
           <DashboardCard title="RevenueCat purchases">
@@ -182,12 +299,20 @@ export default function SettingsScreen() {
               description="The public demonstration contains no respondent or institutional data."
             />
             <SafeguardItem
+              title="Memory-only pilot credential"
+              description="The controlled-pilot key is never persisted, logged or included in public build configuration."
+            />
+            <SafeguardItem
+              title="Privacy-minimised protected view"
+              description="The mobile summary omits observed respondent values and displays only validation and review metadata."
+            />
+            <SafeguardItem
               title="Raw data remains separate"
-              description="The connected architecture will keep raw uploads, standardised data, issue registers and review logs distinct."
+              description="The connected architecture keeps raw uploads, standardised data, issue registers and review logs distinct."
             />
             <SafeguardItem
               title="No silent substantive corrections"
-              description="Reviewers will approve proposed corrections before corrected outputs are generated."
+              description="Reviewers approve proposed corrections before corrected outputs are generated."
             />
             <SafeguardItem
               title="Explicit deletion controls"
@@ -202,7 +327,7 @@ export default function SettingsScreen() {
             />
             <SafeguardItem
               title="Internet-required actions"
-              description="Upload, validation, report exports and purchases will require a live connection."
+              description="Upload, validation, protected refreshes, report exports and purchases require a live connection."
             />
           </DashboardCard>
 
@@ -235,6 +360,21 @@ function getBackendStatusTone(
   if (status === 'success') return 'success';
   if (!configured || status === 'error') return 'error';
   return 'warning';
+}
+
+function getProtectedStatusLabel(status: ProtectedAccessStatus, hasKey: boolean): string {
+  if (status === 'checking') return 'Checking';
+  if (status === 'success') return 'Authorised';
+  if (status === 'error') return 'Access failed';
+  if (hasKey) return 'Key entered — not tested';
+  return 'No session key';
+}
+
+function getProtectedStatusTone(status: ProtectedAccessStatus, hasKey: boolean): SettingTone {
+  if (status === 'success') return 'success';
+  if (status === 'error') return 'error';
+  if (hasKey || status === 'checking') return 'warning';
+  return 'neutral';
 }
 
 type SettingTone = 'neutral' | 'success' | 'warning' | 'error';
@@ -331,6 +471,47 @@ const styles = StyleSheet.create({
   },
   errorHelperText: {
     color: Colours.error,
+  },
+  keyFieldGroup: {
+    gap: 7,
+  },
+  inputLabel: {
+    color: Colours.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  keyInputRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  keyInput: {
+    flex: 1,
+    minHeight: 46,
+    backgroundColor: Colours.background,
+    borderColor: Colours.border,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    color: Colours.text,
+    fontSize: 14,
+  },
+  keyToggle: {
+    minWidth: 62,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colours.surfaceMuted,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+  },
+  keyToggleText: {
+    color: Colours.brandDark,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  pressed: {
+    opacity: 0.72,
   },
   safeguardItem: {
     flexDirection: 'row',
