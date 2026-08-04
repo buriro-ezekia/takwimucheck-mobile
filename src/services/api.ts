@@ -1,14 +1,18 @@
-// Provides typed, timeout-aware clients for public readiness and protected pilot routes.
+// Provides typed, timeout-aware clients for readiness, protected data and CSV validation routes.
 
 const rawBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 const API_BASE_URL = rawBaseUrl ? rawBaseUrl.replace(/\/$/, '') : null;
 const DEFAULT_TIMEOUT_MS = 10_000;
+const VALIDATION_TIMEOUT_MS = 120_000;
 
 export type ApiErrorCode =
   | 'not-configured'
   | 'missing-access-key'
   | 'access-denied'
   | 'storage-unavailable'
+  | 'preflight-failed'
+  | 'metadata-unavailable'
+  | 'validation-failed'
   | 'timeout'
   | 'network'
   | 'http'
@@ -32,6 +36,10 @@ export interface RuntimeStatusData {
   version: string;
   protected_storage_routes: boolean;
   cors_enabled: boolean;
+  csv_preflight_enabled?: boolean;
+  validation_submission_enabled?: boolean;
+  upload_max_file_size_bytes?: number;
+  upload_max_records?: number;
   [key: string]: unknown;
 }
 
@@ -45,6 +53,10 @@ export interface BackendConnectionSnapshot {
   version: string;
   protectedStorageRoutes: boolean;
   corsEnabled: boolean;
+  csvPreflightEnabled: boolean;
+  validationSubmissionEnabled: boolean;
+  uploadMaxFileSizeBytes: number | null;
+  uploadMaxRecords: number | null;
   checkedAt: string;
 }
 
@@ -96,9 +108,49 @@ export interface ProtectedAccessSnapshot {
   checkedAt: string;
 }
 
+export interface UploadableCsvFile {
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+  size?: number | null;
+  webFile?: Blob | null;
+}
+
+export interface CsvPreflightLimits {
+  max_file_size_bytes: number;
+  max_records: number;
+}
+
+export interface CsvPreflightData {
+  ready: boolean;
+  file_name: string;
+  file_size_bytes: number;
+  sha256: string;
+  encoding: string;
+  row_count: number;
+  column_count: number;
+  columns: string[];
+  empty_row_count: number;
+  inconsistent_row_count: number;
+  warnings: string[];
+  errors: string[];
+  error_codes: string[];
+  limits: CsvPreflightLimits;
+}
+
+export interface ValidationSubmissionData {
+  validation_run: ValidationRunRecord;
+  preflight: CsvPreflightData;
+  issues_written: number;
+  quality_rating: string;
+  artifacts: Record<string, string>;
+}
+
 interface RequestOptions {
   timeoutMs?: number;
   accessKey?: string;
+  method?: 'GET' | 'POST';
+  body?: BodyInit;
 }
 
 export class ApiError extends Error {
@@ -140,24 +192,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function extractServerMessage(payload: unknown): string | null {
+function extractServerDetail(payload: unknown): { code: string | null; message: string | null } {
   if (typeof payload === 'string' && payload.trim()) {
-    return payload.trim();
+    return { code: null, message: payload.trim() };
   }
 
   if (!isRecord(payload)) {
-    return null;
+    return { code: null, message: null };
   }
 
-  if (typeof payload.detail === 'string' && payload.detail.trim()) {
-    return payload.detail.trim();
+  const detail = payload.detail;
+  if (typeof detail === 'string' && detail.trim()) {
+    return { code: null, message: detail.trim() };
   }
 
-  if (typeof payload.message === 'string' && payload.message.trim()) {
-    return payload.message.trim();
+  if (isRecord(detail)) {
+    return {
+      code: typeof detail.code === 'string' ? detail.code : null,
+      message: typeof detail.message === 'string' ? detail.message : null,
+    };
   }
 
-  return null;
+  return {
+    code: typeof payload.code === 'string' ? payload.code : null,
+    message: typeof payload.message === 'string' ? payload.message : null,
+  };
 }
 
 function parseRuntimeEnvelope(payload: unknown): ServiceEnvelope<RuntimeStatusData> {
@@ -216,6 +275,49 @@ function parseIssueRegisterEnvelope(payload: unknown): ServiceEnvelope<IssueRegi
   return payload as unknown as ServiceEnvelope<IssueRegisterData>;
 }
 
+function parsePreflightEnvelope(payload: unknown): ServiceEnvelope<CsvPreflightData> {
+  if (
+    !isRecord(payload) ||
+    typeof payload.status !== 'string' ||
+    !isRecord(payload.data) ||
+    typeof payload.data.ready !== 'boolean' ||
+    typeof payload.data.row_count !== 'number' ||
+    typeof payload.data.column_count !== 'number' ||
+    !Array.isArray(payload.data.columns) ||
+    !Array.isArray(payload.data.warnings) ||
+    !Array.isArray(payload.data.errors)
+  ) {
+    throw new ApiError(
+      'The backend returned an unexpected CSV preflight response.',
+      'invalid-response',
+      0,
+      payload,
+    );
+  }
+
+  return payload as unknown as ServiceEnvelope<CsvPreflightData>;
+}
+
+function parseSubmissionEnvelope(payload: unknown): ServiceEnvelope<ValidationSubmissionData> {
+  if (
+    !isRecord(payload) ||
+    typeof payload.status !== 'string' ||
+    !isRecord(payload.data) ||
+    !isRecord(payload.data.validation_run) ||
+    !isRecord(payload.data.preflight) ||
+    typeof payload.data.issues_written !== 'number'
+  ) {
+    throw new ApiError(
+      'The backend returned an unexpected validation submission response.',
+      'invalid-response',
+      0,
+      payload,
+    );
+  }
+
+  return payload as unknown as ServiceEnvelope<ValidationSubmissionData>;
+}
+
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   if (!API_BASE_URL) {
     throw new ApiError(
@@ -235,7 +337,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
+      method: options.method ?? 'GET',
       headers,
+      body: options.body,
       signal: controller.signal,
     });
 
@@ -256,6 +360,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
           'Protected backend access was denied. Check the session access key.',
           'access-denied',
           response.status,
+          payload,
         );
       }
 
@@ -264,15 +369,25 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
           'Protected storage routes are unavailable. Start the backend with a configured database path.',
           'storage-unavailable',
           response.status,
+          payload,
         );
       }
 
-      const serverMessage = extractServerMessage(payload);
+      const serverDetail = extractServerDetail(payload);
+      const mappedCode: ApiErrorCode =
+        serverDetail.code === 'preflight_failed'
+          ? 'preflight-failed'
+          : serverDetail.code === 'metadata_unavailable' || serverDetail.code === 'metadata_invalid'
+            ? 'metadata-unavailable'
+            : serverDetail.code === 'validation_failed'
+              ? 'validation-failed'
+              : 'http';
+
       throw new ApiError(
-        serverMessage
-          ? `The backend returned ${response.status}: ${serverMessage}`
+        serverDetail.message
+          ? `The backend returned ${response.status}: ${serverDetail.message}`
           : `The backend returned status ${response.status}.`,
-        'http',
+        mappedCode,
         response.status,
         payload,
       );
@@ -302,6 +417,37 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 }
 
+function requireAccessKey(accessKey: string): string {
+  const trimmedAccessKey = accessKey.trim();
+  if (!trimmedAccessKey) {
+    throw new ApiError(
+      'Enter the protected-route access key for this app session.',
+      'missing-access-key',
+    );
+  }
+  return trimmedAccessKey;
+}
+
+function buildCsvFormData(file: UploadableCsvFile): FormData {
+  const formData = new FormData();
+  formData.append('file_name', file.name);
+
+  if (file.webFile) {
+    formData.append('file', file.webFile, file.name);
+  } else {
+    formData.append(
+      'file',
+      {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || 'text/csv',
+      } as unknown as Blob,
+    );
+  }
+
+  return formData;
+}
+
 export function describeApiError(error: unknown): string {
   if (isApiError(error)) {
     return error.message;
@@ -322,6 +468,33 @@ export const api = {
     parseValidationRunsEnvelope(await request<unknown>('/validation-runs', { accessKey })),
   issueRegister: async (accessKey: string) =>
     parseIssueRegisterEnvelope(await request<unknown>('/issue-register', { accessKey })),
+  preflightCsv: async (accessKey: string, file: UploadableCsvFile) =>
+    parsePreflightEnvelope(
+      await request<unknown>('/validation-runs/preflight', {
+        method: 'POST',
+        accessKey,
+        body: buildCsvFormData(file),
+        timeoutMs: 30_000,
+      }),
+    ),
+  submitCsvValidation: async (
+    accessKey: string,
+    file: UploadableCsvFile,
+    surveyId: string,
+    actor = 'mobile_pilot',
+  ) => {
+    const formData = buildCsvFormData(file);
+    formData.append('survey_id', surveyId.trim());
+    formData.append('actor', actor.trim() || 'mobile_pilot');
+    return parseSubmissionEnvelope(
+      await request<unknown>('/validation-runs', {
+        method: 'POST',
+        accessKey,
+        body: formData,
+        timeoutMs: VALIDATION_TIMEOUT_MS,
+      }),
+    );
+  },
 };
 
 export async function checkBackendConnection(): Promise<BackendConnectionSnapshot> {
@@ -354,19 +527,22 @@ export async function checkBackendConnection(): Promise<BackendConnectionSnapsho
     version: runtimeStatus.data.version || version.version,
     protectedStorageRoutes: Boolean(runtimeStatus.data.protected_storage_routes),
     corsEnabled: Boolean(runtimeStatus.data.cors_enabled),
+    csvPreflightEnabled: Boolean(runtimeStatus.data.csv_preflight_enabled),
+    validationSubmissionEnabled: Boolean(runtimeStatus.data.validation_submission_enabled),
+    uploadMaxFileSizeBytes:
+      typeof runtimeStatus.data.upload_max_file_size_bytes === 'number'
+        ? runtimeStatus.data.upload_max_file_size_bytes
+        : null,
+    uploadMaxRecords:
+      typeof runtimeStatus.data.upload_max_records === 'number'
+        ? runtimeStatus.data.upload_max_records
+        : null,
     checkedAt: new Date().toISOString(),
   };
 }
 
 export async function checkProtectedAccess(accessKey: string): Promise<ProtectedAccessSnapshot> {
-  const trimmedAccessKey = accessKey.trim();
-
-  if (!trimmedAccessKey) {
-    throw new ApiError(
-      'Enter the protected-route access key for this app session.',
-      'missing-access-key',
-    );
-  }
+  const trimmedAccessKey = requireAccessKey(accessKey);
 
   const [validationRuns, issueRegister] = await Promise.all([
     api.validationRuns(trimmedAccessKey),
@@ -389,4 +565,45 @@ export async function checkProtectedAccess(accessKey: string): Promise<Protected
     issues: issueRegister.data.issues,
     checkedAt: new Date().toISOString(),
   };
+}
+
+export async function preflightCsvUpload(
+  accessKey: string,
+  file: UploadableCsvFile,
+): Promise<CsvPreflightData> {
+  const response = await api.preflightCsv(requireAccessKey(accessKey), file);
+  if (response.status !== 'ok') {
+    throw new ApiError(
+      'The CSV preflight route returned an incomplete response.',
+      'invalid-response',
+      0,
+      response,
+    );
+  }
+  return response.data;
+}
+
+export async function submitCsvValidation(
+  accessKey: string,
+  file: UploadableCsvFile,
+  surveyId: string,
+): Promise<ValidationSubmissionData> {
+  if (!surveyId.trim()) {
+    throw new ApiError('Enter a survey identifier before validation.', 'preflight-failed');
+  }
+
+  const response = await api.submitCsvValidation(
+    requireAccessKey(accessKey),
+    file,
+    surveyId,
+  );
+  if (response.status !== 'ok') {
+    throw new ApiError(
+      'The validation submission route returned an incomplete response.',
+      'invalid-response',
+      0,
+      response,
+    );
+  }
+  return response.data;
 }
