@@ -24,6 +24,7 @@ export default function RootLayout() {
               }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="demo" />
+              <Stack.Screen name="upload" />
               <Stack.Screen name="validation-summary" />
               <Stack.Screen name="issues" />
               <Stack.Screen name="protected-data" />
