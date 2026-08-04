@@ -2,7 +2,9 @@
 
 export type IssueSeverity = 'error' | 'warning';
 
-export type IssueStatus = 'open' | 'reviewed' | 'deferred';
+export type IssueStatus = 'open' | 'accepted' | 'deferred' | 'correction-proposed';
+
+export type ReviewAction = 'accept' | 'defer' | 'propose-correction';
 
 export type ValidationRuleStatus = 'passed' | 'attention';
 
@@ -27,6 +29,24 @@ export interface ValidationIssue {
   observedValue: string;
   expected: string;
   category: string;
+}
+
+export interface ReviewDecision {
+  id: string;
+  issueId: string;
+  action: ReviewAction;
+  reason: string;
+  reviewer: string;
+  proposedValue?: string;
+  createdAt: string;
+}
+
+export interface SubmitReviewDecisionInput {
+  issueId: string;
+  action: ReviewAction;
+  reason: string;
+  reviewer: string;
+  proposedValue?: string;
 }
 
 export interface RuleCoverageItem {
