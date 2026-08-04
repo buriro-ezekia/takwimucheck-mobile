@@ -38,13 +38,13 @@ export function IssueCard({ issue, latestDecision, onAction }: IssueCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.badgeRow}>
-        <View style={[styles.badge, { backgroundColor: severityBackground }]}> 
+        <View style={[styles.badge, { backgroundColor: severityBackground }]}>
           <Text style={[styles.badgeText, { color: severityText }]}>
             {issue.severity.toUpperCase()}
           </Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: statusPalette.background }]}> 
-          <Text style={[styles.statusText, { color: statusPalette.text }]}> 
+        <View style={[styles.statusBadge, { backgroundColor: statusPalette.background }]}>
+          <Text style={[styles.statusText, { color: statusPalette.text }]}>
             {statusLabels[issue.status]}
           </Text>
         </View>
