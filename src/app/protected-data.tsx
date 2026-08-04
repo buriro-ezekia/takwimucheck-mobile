@@ -1,5 +1,6 @@
 // Presents validation runs, aggregate quality results, filters and secure report access.
 
+import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -51,6 +52,7 @@ const emptyFilters: AppliedFilters = {
 };
 
 export default function ProtectedDataScreen() {
+  const router = useRouter();
   const {
     accessKey,
     snapshot,
@@ -215,7 +217,12 @@ export default function ProtectedDataScreen() {
   };
 
   if (!snapshot) {
-    return <AccessRequired message={protectedMessage} />;
+    return (
+      <AccessRequired
+        message={protectedMessage}
+        onOpenSettings={() => router.replace('/settings')}
+      />
+    );
   }
 
   return (
@@ -358,6 +365,13 @@ export default function ProtectedDataScreen() {
               <DashboardCard
                 title={`Issue register${issuePage ? ` — ${issuePage.total}` : ''}`}
                 description="Identifiers, rule context and review status are shown. Current respondent values remain excluded.">
+                {loading ? (
+                  <View style={styles.inlineLoading}>
+                    <ActivityIndicator size="small" color={Colours.brand} />
+                    <Text style={styles.helperText}>Applying result filters…</Text>
+                  </View>
+                ) : null}
+
                 {issues.length > 0 ? (
                   issues.map((issue, index) => (
                     <IssueRow
@@ -365,14 +379,9 @@ export default function ProtectedDataScreen() {
                       issue={issue}
                     />
                   ))
-                ) : loading ? (
-                  <View style={styles.inlineLoading}>
-                    <ActivityIndicator size="small" color={Colours.brand} />
-                    <Text style={styles.helperText}>Applying filters…</Text>
-                  </View>
-                ) : (
+                ) : !loading ? (
                   <EmptyText text="No issues match the selected filters." />
-                )}
+                ) : null}
 
                 {issuePage?.has_more ? (
                   <PrimaryButton
@@ -438,7 +447,13 @@ export default function ProtectedDataScreen() {
   );
 }
 
-function AccessRequired({ message }: { message: string }) {
+function AccessRequired({
+  message,
+  onOpenSettings,
+}: {
+  message: string;
+  onOpenSettings: () => void;
+}) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -451,6 +466,7 @@ function AccessRequired({ message }: { message: string }) {
           />
           <DashboardCard title="Access required">
             <Text style={styles.helperText}>{message}</Text>
+            <PrimaryButton label="Open backend access settings" onPress={onOpenSettings} />
           </DashboardCard>
         </View>
       </ScrollView>
@@ -506,7 +522,7 @@ function FilterGroup({
           <FilterChip
             key={`${label}-${value}`}
             label={humanise(value)}
-            selected={selected.casefold?.() === value.casefold?.() || selected.toLowerCase() === value.toLowerCase()}
+            selected={selected.toLowerCase() === value.toLowerCase()}
             onPress={() => onSelect(value)}
           />
         ))}
