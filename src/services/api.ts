@@ -1,4 +1,4 @@
-// Provides typed, timeout-aware clients for readiness, protected data and CSV validation routes.
+// Provides typed, timeout-aware clients for readiness, authenticated data and CSV validation routes.
 
 const rawBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
 const API_BASE_URL = rawBaseUrl ? rawBaseUrl.replace(/\/$/, '') : null;
@@ -38,6 +38,13 @@ export interface RuntimeStatusData {
   cors_enabled: boolean;
   csv_preflight_enabled?: boolean;
   validation_submission_enabled?: boolean;
+  authentication_enabled?: boolean;
+  short_lived_access_tokens_enabled?: boolean;
+  role_based_authorisation_enabled?: boolean;
+  legacy_api_key_allowed?: boolean;
+  server_revenuecat_verification_enabled?: boolean;
+  access_token_ttl_seconds?: number;
+  refresh_token_ttl_seconds?: number;
   upload_max_file_size_bytes?: number;
   upload_max_records?: number;
   [key: string]: unknown;
@@ -55,6 +62,12 @@ export interface BackendConnectionSnapshot {
   corsEnabled: boolean;
   csvPreflightEnabled: boolean;
   validationSubmissionEnabled: boolean;
+  authenticationEnabled: boolean;
+  shortLivedAccessTokensEnabled: boolean;
+  roleBasedAuthorisationEnabled: boolean;
+  serverRevenueCatVerificationEnabled: boolean;
+  accessTokenTtlSeconds: number | null;
+  refreshTokenTtlSeconds: number | null;
   uploadMaxFileSizeBytes: number | null;
   uploadMaxRecords: number | null;
   checkedAt: string;
@@ -332,7 +345,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const headers: Record<string, string> = { Accept: 'application/json' };
 
   if (options.accessKey?.trim()) {
-    headers['x-api-key'] = options.accessKey.trim();
+    headers.Authorization = `Bearer ${options.accessKey.trim()}`;
   }
 
   try {
@@ -355,9 +368,29 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
 
     if (!response.ok) {
+      const serverDetail = extractServerDetail(payload);
+
+      if (response.status === 401) {
+        throw new ApiError(
+          serverDetail.message || 'Your authenticated session has expired. Sign in again.',
+          'access-denied',
+          response.status,
+          payload,
+        );
+      }
+
       if (response.status === 403) {
         throw new ApiError(
-          'Protected backend access was denied. Check the session access key.',
+          serverDetail.message || 'Your account is not authorised for this action.',
+          'access-denied',
+          response.status,
+          payload,
+        );
+      }
+
+      if (response.status === 402) {
+        throw new ApiError(
+          serverDetail.message || 'An active TakwimuCheck Pro entitlement is required.',
           'access-denied',
           response.status,
           payload,
@@ -373,7 +406,6 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         );
       }
 
-      const serverDetail = extractServerDetail(payload);
       const mappedCode: ApiErrorCode =
         serverDetail.code === 'preflight_failed'
           ? 'preflight-failed'
@@ -421,7 +453,7 @@ function requireAccessKey(accessKey: string): string {
   const trimmedAccessKey = accessKey.trim();
   if (!trimmedAccessKey) {
     throw new ApiError(
-      'Enter the protected-route access key for this app session.',
+      'Sign in before using authenticated backend routes.',
       'missing-access-key',
     );
   }
@@ -481,11 +513,11 @@ export const api = {
     accessKey: string,
     file: UploadableCsvFile,
     surveyId: string,
-    actor = 'mobile_pilot',
+    actor = 'authenticated_user',
   ) => {
     const formData = buildCsvFormData(file);
     formData.append('survey_id', surveyId.trim());
-    formData.append('actor', actor.trim() || 'mobile_pilot');
+    formData.append('actor', actor.trim() || 'authenticated_user');
     return parseSubmissionEnvelope(
       await request<unknown>('/validation-runs', {
         method: 'POST',
@@ -529,6 +561,24 @@ export async function checkBackendConnection(): Promise<BackendConnectionSnapsho
     corsEnabled: Boolean(runtimeStatus.data.cors_enabled),
     csvPreflightEnabled: Boolean(runtimeStatus.data.csv_preflight_enabled),
     validationSubmissionEnabled: Boolean(runtimeStatus.data.validation_submission_enabled),
+    authenticationEnabled: Boolean(runtimeStatus.data.authentication_enabled),
+    shortLivedAccessTokensEnabled: Boolean(
+      runtimeStatus.data.short_lived_access_tokens_enabled,
+    ),
+    roleBasedAuthorisationEnabled: Boolean(
+      runtimeStatus.data.role_based_authorisation_enabled,
+    ),
+    serverRevenueCatVerificationEnabled: Boolean(
+      runtimeStatus.data.server_revenuecat_verification_enabled,
+    ),
+    accessTokenTtlSeconds:
+      typeof runtimeStatus.data.access_token_ttl_seconds === 'number'
+        ? runtimeStatus.data.access_token_ttl_seconds
+        : null,
+    refreshTokenTtlSeconds:
+      typeof runtimeStatus.data.refresh_token_ttl_seconds === 'number'
+        ? runtimeStatus.data.refresh_token_ttl_seconds
+        : null,
     uploadMaxFileSizeBytes:
       typeof runtimeStatus.data.upload_max_file_size_bytes === 'number'
         ? runtimeStatus.data.upload_max_file_size_bytes
@@ -551,7 +601,7 @@ export async function checkProtectedAccess(accessKey: string): Promise<Protected
 
   if (validationRuns.status !== 'ok' || issueRegister.status !== 'ok') {
     throw new ApiError(
-      'The protected backend routes returned an incomplete response.',
+      'The authenticated backend routes returned an incomplete response.',
       'invalid-response',
       0,
       { validationRuns, issueRegister },
