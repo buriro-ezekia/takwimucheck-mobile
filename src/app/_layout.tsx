@@ -1,4 +1,4 @@
-// Configures the TakwimuCheck route stack, safe areas, purchases, review and backend access state.
+// Configures routes, authenticated sessions, RevenueCat, safe areas and review state.
 
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -12,8 +12,8 @@ import { ReviewProvider } from '@/providers/review-provider';
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <RevenueCatProvider>
-        <BackendAccessProvider>
+      <BackendAccessProvider>
+        <RevenueCatProvider>
           <ReviewProvider>
             <StatusBar style="dark" />
             <Stack
@@ -23,6 +23,7 @@ export default function RootLayout() {
                 animation: 'slide_from_right',
               }}>
               <Stack.Screen name="index" />
+              <Stack.Screen name="sign-in" />
               <Stack.Screen name="demo" />
               <Stack.Screen name="upload" />
               <Stack.Screen name="validation-summary" />
@@ -35,8 +36,8 @@ export default function RootLayout() {
               <Stack.Screen name="settings" />
             </Stack>
           </ReviewProvider>
-        </BackendAccessProvider>
-      </RevenueCatProvider>
+        </RevenueCatProvider>
+      </BackendAccessProvider>
     </SafeAreaProvider>
   );
 }
