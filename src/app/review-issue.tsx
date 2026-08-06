@@ -64,6 +64,7 @@ export default function ReviewIssueScreen() {
   const [reviewer, setReviewer] = useState('');
   const [reason, setReason] = useState('');
   const [proposedValue, setProposedValue] = useState('');
+  const [pendingClientDecisionId, setPendingClientDecisionId] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -118,6 +119,10 @@ export default function ReviewIssueScreen() {
     };
   }, [accessKey, issueId, refreshToken, runId]);
 
+  useEffect(() => {
+    setPendingClientDecisionId('');
+  }, [action, issueId, proposedValue, reason, reviewer, runId]);
+
   const submit = async () => {
     if (!issue) {
       Alert.alert('Issue unavailable', 'Refresh the issue before submitting a decision.');
@@ -136,11 +141,16 @@ export default function ReviewIssueScreen() {
       return;
     }
 
+    const clientDecisionId = pendingClientDecisionId || buildClientDecisionId(issueId);
+    if (!pendingClientDecisionId) {
+      setPendingClientDecisionId(clientDecisionId);
+    }
+
     setSubmitting(true);
     setErrorMessage('');
     try {
       const result = await submitReviewDecision(accessKey, {
-        client_decision_id: buildClientDecisionId(issueId),
+        client_decision_id: clientDecisionId,
         issue_id: issueId,
         validation_run_id: runId,
         action,
@@ -150,6 +160,7 @@ export default function ReviewIssueScreen() {
         expected_previous_status: readText(issue.status) || 'open',
       });
       const saved = result.decisions[0];
+      setPendingClientDecisionId('');
       setReason('');
       setProposedValue('');
       await refreshProtectedData();
@@ -161,7 +172,10 @@ export default function ReviewIssueScreen() {
     } catch (error) {
       const message = describeApiError(error);
       setErrorMessage(message);
-      Alert.alert('Submit review decision', message);
+      Alert.alert(
+        'Submit review decision',
+        `${message}\n\nRetrying without changing the form will reuse the same decision identifier.`,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -383,7 +397,9 @@ function InputField({
         textAlignVertical={multiline ? 'top' : 'center'}
         style={[styles.input, multiline && styles.multilineInput]}
       />
-      <Text style={styles.characterCount}>{value.length.toLocaleString()} / {maxLength.toLocaleString()}</Text>
+      <Text style={styles.characterCount}>
+        {value.length.toLocaleString()} / {maxLength.toLocaleString()}
+      </Text>
     </View>
   );
 }
