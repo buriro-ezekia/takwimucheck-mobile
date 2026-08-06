@@ -28,6 +28,9 @@ export default function RootLayout() {
               <Stack.Screen name="validation-summary" />
               <Stack.Screen name="issues" />
               <Stack.Screen name="protected-data" />
+              <Stack.Screen name="review-queue" />
+              <Stack.Screen name="review-issue" />
+              <Stack.Screen name="review-audit" />
               <Stack.Screen name="upgrade" />
               <Stack.Screen name="settings" />
             </Stack>
