@@ -1,4 +1,4 @@
-// Presents the live RevenueCat subscription boundary for TakwimuCheck Pro.
+// Presents the live cross-platform RevenueCat subscription boundary for TakwimuCheck Pro.
 
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,17 +11,18 @@ import { REVENUECAT_ENTITLEMENT_ID } from '@/services/revenuecat';
 
 const freeFeatures = [
   'Synthetic demonstration project',
-  'One user dataset up to 500 records',
-  'Standard validation checks',
-  'On-screen quality summary',
+  'One controlled-pilot dataset up to 500 records',
+  'Standard validation checks and result filters',
+  'Persistent protected issue review',
+  'On-screen review history',
 ];
 
 const proFeatures = [
-  'Up to 10 active projects',
-  'Datasets up to 10,000 records',
-  'Custom validation metadata',
-  'Project history and issue review',
-  'Full CSV, HTML and Excel exports',
+  'Complete persistent review-audit CSV export',
+  'Short-lived signed export link',
+  'Monthly or annual entitlement access',
+  'Shared entitlement status across Android and web',
+  'Future expanded project history and limits',
 ];
 
 export default function UpgradeScreen() {
@@ -46,8 +47,18 @@ export default function UpgradeScreen() {
   const statusTitle = snapshot.entitlementActive
     ? 'TakwimuCheck Pro is active'
     : snapshot.state === 'ready'
-      ? 'Ready for a Test Store purchase'
+      ? snapshot.purchaseActionsSupported
+        ? 'Ready for a Test Store purchase'
+        : 'Shared Pro access is inactive'
       : 'RevenueCat setup required';
+
+  const subscribeLabel = snapshot.entitlementActive
+    ? 'Complete audit export is unlocked'
+    : !snapshot.purchaseActionsSupported
+      ? 'Subscribe in the Android app'
+      : actionInProgress
+        ? 'Opening RevenueCat…'
+        : 'View subscription options';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -57,9 +68,9 @@ export default function UpgradeScreen() {
         <View style={styles.container}>
           <AppHeader
             showBack
-            eyebrow="RevenueCat Test Store"
-            title="Unlock TakwimuCheck Pro"
-            subtitle="Monthly and annual products share one entitlement, while prices and packages are loaded from the current RevenueCat offering."
+            eyebrow="RevenueCat identified customer"
+            title="Unlock the complete review audit"
+            subtitle="Android and web read the same entitlement through one non-guessable App User ID. Purchases remain native, while entitlement access is shared."
           />
 
           <View
@@ -78,26 +89,34 @@ export default function UpgradeScreen() {
             <View style={styles.statusFacts}>
               <StatusFact label="Platform" value={snapshot.platform} />
               <StatusFact
+                label="Customer mode"
+                value={snapshot.identifiedCustomer ? 'Identified' : 'Not identified'}
+              />
+              <StatusFact
+                label="App User ID"
+                value={snapshot.appUserId || 'Not configured'}
+              />
+              <StatusFact
                 label="Current offering"
                 value={snapshot.currentOfferingAvailable ? 'Available' : 'Not available'}
               />
               <StatusFact label="Packages" value={String(snapshot.packageCount)} />
               <StatusFact
-                label="Pro access"
-                value={snapshot.entitlementActive ? 'Active' : 'Inactive'}
+                label="Audit export"
+                value={snapshot.entitlementActive ? 'Unlocked' : 'Locked'}
               />
             </View>
           </View>
 
           <View style={styles.planGrid}>
             <PlanCard
-              name="Free"
-              description="Evaluate the workflow and validate a small dataset."
+              name="Pilot access"
+              description="Validate, inspect and review issues without hiding the core quality-assurance workflow."
               features={freeFeatures}
             />
             <PlanCard
               name="Pro"
-              description="For supervisors and data managers handling active survey projects."
+              description="Unlock the complete portable audit trail for supervisors and data managers."
               features={proFeatures}
               highlighted
             />
@@ -107,25 +126,31 @@ export default function UpgradeScreen() {
             <Text style={styles.entitlementLabel}>Entitlement identifier</Text>
             <Text style={styles.entitlementValue}>{REVENUECAT_ENTITLEMENT_ID}</Text>
             <Text style={styles.entitlementHelp}>
-              The monthly and annual Test Store products must both unlock this entitlement.
+              Monthly and annual products must both unlock this entitlement. Android completes the
+              Test Store purchase, while web reads the same customer entitlement using the shared
+              App User ID.
             </Text>
           </View>
 
           <PrimaryButton
-            label={
-              snapshot.entitlementActive
-                ? 'Pro access is active'
-                : actionInProgress
-                  ? 'Opening RevenueCat…'
-                  : 'View subscription options'
+            label={subscribeLabel}
+            disabled={
+              snapshot.entitlementActive ||
+              actionInProgress ||
+              !snapshot.purchaseActionsSupported
             }
-            disabled={snapshot.entitlementActive || actionInProgress}
             onPress={handlePaywall}
           />
           <PrimaryButton
-            label={actionInProgress ? 'Please wait…' : 'Restore purchases'}
+            label={
+              snapshot.purchaseActionsSupported
+                ? actionInProgress
+                  ? 'Please wait…'
+                  : 'Restore purchases'
+                : 'Restore purchases in Android'
+            }
             variant="secondary"
-            disabled={actionInProgress}
+            disabled={actionInProgress || !snapshot.purchaseActionsSupported}
             onPress={handleRestore}
           />
           <PrimaryButton
@@ -136,8 +161,9 @@ export default function UpgradeScreen() {
           />
 
           <Text style={styles.footerText}>
-            Test Store purchases behave like subscriptions for entitlement testing but do not charge
-            real money. A native development build is required for the full purchase flow.
+            Test Store purchases do not charge real money. The controlled pilot uses one shared,
+            non-secret App User ID across Android and web; a public multi-user release must replace
+            it with authenticated per-user identities.
           </Text>
         </View>
       </ScrollView>
@@ -149,7 +175,7 @@ function StatusFact({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.statusFact}>
       <Text style={styles.statusFactLabel}>{label}</Text>
-      <Text style={styles.statusFactValue}>{value}</Text>
+      <Text selectable style={styles.statusFactValue}>{value}</Text>
     </View>
   );
 }

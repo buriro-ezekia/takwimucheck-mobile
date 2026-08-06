@@ -6,146 +6,144 @@ TakwimuCheck is a mobile-first survey data quality assurance application for sup
 Upload → Validate → Review → Report
 ```
 
-The mobile application connects a focused survey-quality workflow to the existing TakwimuCheck validation backend, presents explainable findings, supports auditable review decisions and unlocks paid capabilities through RevenueCat.
+The Expo application connects to the TakwimuCheck validation backend, presents explainable quality findings, records persistent human review decisions and unlocks the complete review-audit export through RevenueCat.
 
 ## Current status
 
-The application is built with Expo SDK 57, React Native, TypeScript and Expo Router.
+The application uses Expo SDK 57, React Native, TypeScript and Expo Router.
 
 Implemented:
 
-- TakwimuCheck home dashboard;
-- synthetic demonstration project;
-- transparent validation summary;
-- filterable issue register;
-- interactive accept, defer and propose-correction decisions;
-- required reviewer identity and reason fields;
-- required proposed value for correction proposals;
-- timestamped decision history and dynamic review counters;
-- explicit demonstration reset control;
-- typed backend readiness client aligned with deployed public routes;
-- live health, version and runtime-status connection test;
-- memory-only controlled-pilot API-key entry;
-- protected validation-run and issue-register retrieval;
-- privacy-minimised protected-data summary that omits observed respondent values;
-- explicit clearing of the session credential and protected response cache;
+- responsive TakwimuCheck dashboard;
+- synthetic public demonstration project;
 - RevenueCat Purchases and Paywalls integration;
-- Monthly and Yearly Test Store packages;
-- published RevenueCat paywall;
-- entitlement activation and restore-purchases workflow;
-- EAS Android development and preview build profiles;
-- successful Android development APK and Test Store purchase verification;
-- protected local environment files;
+- Monthly and Yearly Test Store packages for `TakwimuCheck Pro`;
+- verified Android Test Store purchase and restore workflow;
+- one identified controlled-pilot RevenueCat customer shared across Android and web;
+- backend readiness checks;
+- memory-only controlled-pilot backend credential;
+- CSV file selection and protected upload preflight;
+- configured validation-run submission;
+- validation-run selection and result summaries;
+- server-backed issue search, filtering and pagination;
+- privacy-minimised protected issue presentation;
+- short-lived signed validation-report links;
+- persistent live issue review;
+- accept, defer, reject and correction-proposal actions;
+- required reviewer identity and decision reason;
+- required proposed value for correction proposals;
+- issue-specific and run-level review history;
+- RevenueCat-gated complete review-audit CSV export;
 - GitHub Actions checks for TypeScript, Expo compatibility, project health and web export.
-
-The public demonstration data, issues and review decisions are fictional and contain no personal or confidential respondent information.
 
 ## Product principles
 
 - Deterministic validation before AI assistance.
-- Explainable findings with record, variable, observed value and expected rule.
+- Explainable findings with identifiers, variables, rule context and expected conditions.
 - Separate raw data, standardised data, issue registers and review logs.
 - No silent substantive corrections.
-- Visible validation and metadata coverage.
-- Mobile-first and low-connectivity optimised, not fully offline.
 - Human approval before correction or final acceptance.
+- Original observed respondent values remain excluded from protected mobile summary and history screens.
+- Proposed corrections are reviewer evidence only and are never applied automatically.
 - Secrets are never embedded in public mobile configuration.
+- Mobile-first and low-connectivity optimised, not fully offline.
 
-## Interactive review demonstration
+## Live controlled-pilot workflow
 
-The sample issue register supports three review actions:
+```text
+Select CSV
+→ run server preflight
+→ submit validation
+→ inspect quality results
+→ open live review queue
+→ record reviewer evidence
+→ reload persistent status and history
+→ open signed reports
+→ export the complete review audit with Pro
+```
+
+Review decisions are stored by the backend, so they remain available after the browser or Android app is closed and reopened.
+
+## Persistent review actions
+
+The live review workflow supports:
 
 ```text
 Accept finding
-Defer finding
+Defer
+Reject finding
 Propose correction
 ```
 
-Each action records:
+Every action records:
 
-- the issue identifier;
-- the selected action;
-- reviewer name;
-- a required reason;
-- a proposed value when correction is selected;
-- an ISO timestamp.
+- a server decision identifier;
+- a retry-safe client decision identifier;
+- issue and validation-run identifiers;
+- action and resulting status;
+- reviewer identity;
+- mandatory decision reason;
+- proposed value, where applicable;
+- previous issue status;
+- server timestamp.
 
-Review state is shared across routes for the current app session. The demonstration reset control restores the seeded synthetic issues and audit history. No review action changes a source record.
+A correction proposal does not modify the uploaded source record.
 
-## Controlled-pilot protected access
+## RevenueCat product boundary
 
-The backend already protects storage-backed routes with the `x-api-key` header when `ASQA_API_KEY` is configured. TakwimuCheck Mobile can now open:
-
-```text
-GET /validation-runs
-GET /issue-register
-```
-
-The pilot credential is entered manually in **Settings → Controlled-pilot protected access**. It is:
-
-- held only in React state for the active app session;
-- never written to `.env.local`, AsyncStorage, logs or repository files;
-- never displayed in the protected summary;
-- cleared explicitly by the user or when the app process closes.
-
-This mechanism is suitable only for a controlled pilot. A production release should replace the shared API key with user authentication, short-lived tokens, role-based authorisation and secure server-side session handling.
-
-The protected summary displays validation-run metadata and issue identifiers, rules, severity and review status. It deliberately omits observed respondent values.
-
-## RevenueCat configuration
-
-RevenueCat manages one Pro entitlement using the dashboard identifier:
+RevenueCat manages one entitlement:
 
 ```text
 TakwimuCheck Pro
 ```
 
-Monthly and Yearly products both unlock this entitlement. The app loads the current Offering remotely and does not hard-code prices.
+Monthly and Yearly products unlock the entitlement. The app loads the active Offering remotely and does not hard-code prices.
 
-RevenueCat Test Store requires a public SDK key:
+Without Pro, authorised pilot users can still:
+
+- upload and validate a controlled-pilot CSV;
+- inspect protected validation findings;
+- submit persistent human review decisions;
+- read review history.
+
+The complete persistent review-audit CSV is locked until `TakwimuCheck Pro` is active or restored. The app then requests a five-minute signed backend link. Neither the RevenueCat secret key nor the protected backend session key is placed in the export URL.
+
+RevenueCat Test Store uses a public SDK key:
 
 ```text
 EXPO_PUBLIC_REVENUECAT_API_KEY
 ```
 
-Production builds can later use platform-specific public SDK keys:
+The controlled pilot also requires one shared, non-guessable App User ID:
+
+```text
+EXPO_PUBLIC_REVENUECAT_APP_USER_ID
+```
+
+The Android app logs the existing anonymous Test Store customer into this identified App User ID. The browser configures RevenueCat with the same ID and can therefore read the same entitlement. The identifier is not a secret, but it must be a random UUID-style value rather than a name, email address or predictable account label.
+
+Production platform keys can use:
 
 ```text
 EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY
 EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
+EXPO_PUBLIC_REVENUECAT_WEB_API_KEY
 ```
 
-Never place RevenueCat secret keys in the mobile app or commit real environment values.
+Never place RevenueCat secret keys in the mobile app.
 
-### Verified RevenueCat milestone
+The shared pilot ID is intentionally limited to one controlled tester. A public multi-user release must replace it with authenticated per-user IDs issued by the application identity system. Hard-coding one customer ID for all public users would incorrectly share purchase access.
 
-The following have been completed in an Android development build:
+## Controlled-pilot backend access
 
-- the current Offering loaded successfully;
-- Monthly and Yearly packages appeared in the published paywall;
-- a Test Store purchase completed;
-- `TakwimuCheck Pro` became active;
-- entitlement state persisted after closing and reopening the app;
-- Restore Purchases completed successfully.
+The pilot backend key is entered in **Settings → Controlled-pilot protected access**. It is:
 
-## Backend readiness
+- held only in React state for the active app session;
+- never written to `.env.local`, AsyncStorage, logs or repository files;
+- never shown in result or review screens;
+- cleared explicitly by the user or when the app process closes.
 
-The public readiness client targets:
-
-```text
-GET /health
-GET /version
-GET /runtime-status
-```
-
-The Settings screen reports:
-
-- service reachability;
-- service name;
-- backend version;
-- whether protected storage routes are enabled;
-- whether CORS is enabled;
-- the time of the last successful check.
+This shared-key design is suitable only for a controlled pilot. Production identity must replace it with user authentication, short-lived tokens and role-based authorisation.
 
 ## Local setup
 
@@ -163,25 +161,32 @@ Clone and install:
 git clone https://github.com/buriro-ezekia/takwimucheck-mobile.git
 Set-Location takwimucheck-mobile
 npm install
-```
-
-Create the private local environment file:
-
-```powershell
 Copy-Item .env.example .env.local
 ```
 
-For backend testing:
+For local web testing:
 
 ```text
 EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
+Generate one controlled-pilot RevenueCat identity and place the same value in `.env.local` for both Metro-served Android and web sessions:
+
+```powershell
+$RevenueCatAppUserId = "tc_pilot_$([guid]::NewGuid().ToString('N'))"
+```
+
+Then set:
+
+```text
+EXPO_PUBLIC_REVENUECAT_APP_USER_ID=<generated value>
+```
+
 Use `http://10.0.2.2:8000` for an Android emulator. A physical phone must use the computer's LAN address while both devices are on the same network.
 
-Do not add the protected API key to any `EXPO_PUBLIC` variable. Enter it through the Settings screen only.
+Do not place the protected backend key in an `EXPO_PUBLIC` variable. Paste it into the Settings screen only.
 
-Run the web preview:
+Run the web application:
 
 ```powershell
 npm run web
@@ -193,23 +198,8 @@ Run project checks:
 npm run typecheck
 npx expo install --check
 npx expo-doctor
+npx expo export --platform web
 ```
-
-## Controlled-pilot backend start
-
-From the backend repository, choose a private local API key interactively and start the SQLite-backed API:
-
-```powershell
-$env:ASQA_DATABASE_PATH = Join-Path (Get-Location) "runtime\pilot-quality.db"
-$env:ASQA_CORS_ORIGINS = "http://localhost:8081,http://127.0.0.1:8081"
-$env:ASQA_API_KEY = Read-Host "Enter a private controlled-pilot API key"
-
-& ".\.venv\Scripts\python.exe" -m uvicorn automated_survey_qa.api.main:app `
-  --host 0.0.0.0 `
-  --port 8000
-```
-
-The protected routes can return empty collections when the database contains no validation runs or issues. A successful empty response still confirms that storage routing and API-key protection are working.
 
 ## Android development build
 
@@ -227,43 +217,56 @@ Create an installable Android development build:
 npx eas-cli@latest build --platform android --profile development
 ```
 
-Install the resulting APK on the Android test phone, then start Metro for the installed development client:
+Start Metro for the installed development client:
 
 ```powershell
 npm run start:dev-client -- --clear
 ```
 
-A development build is required for the full RevenueCat Test Store flow. Expo Go cannot perform the native purchase transaction.
+A development build is required for the native RevenueCat Test Store purchase flow. Expo Go cannot perform the complete transaction. Web can read the entitlement for the shared identified customer but does not restore native purchases or initiate the native Test Store paywall.
 
 ## Main routes
 
 ```text
 src/app/index.tsx                Home dashboard
-src/app/demo.tsx                 Synthetic project and live sample-review overview
-src/app/validation-summary.tsx   Validation coverage and issue summary
-src/app/issues.tsx               Interactive sample issue register and audit history
-src/app/protected-data.tsx       Protected validation-run and issue metadata summary
-src/app/upgrade.tsx              RevenueCat Pro subscription screen
-src/app/settings.tsx             Backend, protected access, safeguards and purchase status
+src/app/upload.tsx               CSV selection, preflight and validation
+src/app/protected-data.tsx       Validation results, filters and reports
+src/app/review-queue.tsx         Persistent live review queue
+src/app/review-issue.tsx         Issue decision form and issue history
+src/app/review-audit.tsx         Run history and Pro audit export
+src/app/demo.tsx                 Synthetic project overview
+src/app/validation-summary.tsx   Demonstration validation coverage
+src/app/issues.tsx               Demonstration issue workflow
+src/app/upgrade.tsx              RevenueCat subscription and identity status
+src/app/settings.tsx             Backend, access and purchase status
 ```
 
 ## Delivery sequence
 
 Completed:
 
-1. Expo SDK 57 application foundation.
-2. TakwimuCheck product shell and synthetic workflow.
-3. RevenueCat Test Store integration and verified Android purchase flow.
-4. Backend readiness client and release hardening.
-5. Interactive issue-review workflow with local audit history.
-6. Controlled-pilot protected-route access with a memory-only credential.
+1. Expo application foundation and product shell.
+2. RevenueCat Test Store integration and Android purchase verification.
+3. Interactive synthetic issue-review demonstration.
+4. Backend readiness and controlled-pilot protected access.
+5. CSV selection, upload preflight and validation-run orchestration.
+6. Validation-result presentation, filtering and signed report access.
+7. Persistent live issue review, cross-platform pilot identity and RevenueCat-gated audit export.
 
-Next production batches:
+Next production work:
 
-1. CSV selection, upload preflight and validation-run orchestration.
-2. Real issue-review submission and export workflows.
-3. Production identity, short-lived tokens and role-based authorisation.
-4. Google Play subscription products, internal testing and store-release preparation.
+1. authenticated per-user identity, short-lived tokens and role-based authorisation;
+2. server-side RevenueCat entitlement verification for production-grade premium enforcement;
+3. Google Play subscription products and internal testing;
+4. production deployment, privacy documentation and store-release preparation.
+
+## Batch documentation
+
+```text
+docs/BATCH_06_CSV_VALIDATION.md
+docs/BATCH_07_VALIDATION_RESULTS.md
+docs/BATCH_08_LIVE_REVIEW.md
+```
 
 ## Licence
 

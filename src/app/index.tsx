@@ -34,7 +34,7 @@ export default function HomeScreen() {
             <Text style={styles.heroTitle}>Mobile survey data quality assurance</Text>
             <Text style={styles.heroSubtitle}>
               Turn survey datasets and validation metadata into an explainable issue register,
-              review workflow and auditable quality report.
+              persistent human review workflow and auditable quality report.
             </Text>
 
             <View style={styles.workflowRow}>
@@ -54,6 +54,11 @@ export default function HomeScreen() {
                 onPress={() => router.push('/upload')}
               />
               <PrimaryButton
+                label="Review real issues"
+                variant="secondary"
+                onPress={() => router.push('/review-queue')}
+              />
+              <PrimaryButton
                 label="Review validation results"
                 variant="secondary"
                 onPress={() => router.push('/protected-data')}
@@ -67,10 +72,10 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.pilotNotice}>
-            <Text style={styles.pilotNoticeTitle}>Controlled-pilot CSV workflow</Text>
+            <Text style={styles.pilotNoticeTitle}>Controlled-pilot live workflow</Text>
             <Text style={styles.pilotNoticeText}>
-              Authorised pilot sessions can select a UTF-8 CSV, review server-side preflight,
-              start protected validation, filter quality findings and open generated reports.
+              Authorised pilot sessions can validate a UTF-8 CSV, filter findings, record persistent
+              reviewer decisions, inspect append-only history and open signed reports or audit exports.
             </Text>
           </View>
 
@@ -104,6 +109,12 @@ export default function HomeScreen() {
             />
 
             <DashboardCard
+              title="Live issue review"
+              description="Open real protected issues, record reviewer evidence and persist accept, defer, reject or correction-proposal decisions."
+              onPress={() => router.push('/review-queue')}
+            />
+
+            <DashboardCard
               title="Validation results and reports"
               description="Select a run, review aggregate quality findings, filter issue metadata and open short-lived report links."
               onPress={() => router.push('/protected-data')}
@@ -123,7 +134,7 @@ export default function HomeScreen() {
 
             <DashboardCard
               title="TakwimuCheck Pro"
-              description="Preview the subscription boundary for full reports, larger datasets and project history."
+              description="Activate the entitlement that unlocks complete persistent review-audit export."
               onPress={() => router.push('/upgrade')}
             />
 
@@ -135,8 +146,8 @@ export default function HomeScreen() {
           </View>
 
           <Text style={styles.footerText}>
-            Mobile-first and low-connectivity optimised. Upload, validation, protected refreshes,
-            report access and purchases require an internet connection.
+            Mobile-first and low-connectivity optimised. Upload, validation, protected review,
+            report access, audit export and purchases require an internet connection.
           </Text>
         </View>
       </ScrollView>

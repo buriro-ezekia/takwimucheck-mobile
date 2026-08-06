@@ -1,4 +1,4 @@
-// Shares RevenueCat entitlement and purchase actions across TakwimuCheck screens.
+// Shares RevenueCat entitlement, identity and purchase actions across TakwimuCheck screens.
 
 import {
   PropsWithChildren,
@@ -36,6 +36,9 @@ const initialSnapshot: RevenueCatSnapshot = {
   currentOfferingAvailable: false,
   packageCount: 0,
   platform: 'unknown',
+  appUserId: '',
+  identifiedCustomer: false,
+  purchaseActionsSupported: false,
   message: 'RevenueCat has not been checked yet.',
   updatedAt: new Date(0).toISOString(),
 };
