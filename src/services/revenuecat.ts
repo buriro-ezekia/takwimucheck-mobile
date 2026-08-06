@@ -1,4 +1,4 @@
-// Provides identified cross-platform RevenueCat entitlement access for TakwimuCheck.
+// Provides cross-platform RevenueCat access for the authenticated TakwimuCheck user.
 
 import { Platform } from 'react-native';
 import Purchases, { CustomerInfo, LOG_LEVEL } from 'react-native-purchases';
@@ -8,6 +8,7 @@ export const REVENUECAT_ENTITLEMENT_ID = 'TakwimuCheck Pro';
 
 export type RevenueCatState =
   | 'ready'
+  | 'signed-out'
   | 'not-configured'
   | 'unsupported-platform'
   | 'unavailable';
@@ -42,33 +43,30 @@ function getPublicApiKey(): string | undefined {
       process.env.EXPO_PUBLIC_REVENUECAT_API_KEY?.trim()
     );
   }
-
   if (Platform.OS === 'ios') {
     return (
       process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim() ||
       process.env.EXPO_PUBLIC_REVENUECAT_API_KEY?.trim()
     );
   }
-
   if (Platform.OS === 'web') {
     return (
       process.env.EXPO_PUBLIC_REVENUECAT_WEB_API_KEY?.trim() ||
       process.env.EXPO_PUBLIC_REVENUECAT_API_KEY?.trim()
     );
   }
-
   return undefined;
 }
 
-function getConfiguredAppUserId(): string | undefined {
-  return process.env.EXPO_PUBLIC_REVENUECAT_APP_USER_ID?.trim() || undefined;
-}
-
 function appUserIdIsValid(value: string): boolean {
-  if (value.length < 24 || value.length > 128) return false;
-  if (value.startsWith('$RCAnonymousID:')) return false;
-  if (value.includes('@') || /\s/.test(value)) return false;
-  return /^[A-Za-z0-9_.:-]+$/.test(value);
+  return (
+    value.length >= 24 &&
+    value.length <= 128 &&
+    !value.startsWith('$RCAnonymousID:') &&
+    !value.includes('@') &&
+    !/\s/.test(value) &&
+    /^[A-Za-z0-9_.:-]+$/.test(value)
+  );
 }
 
 function entitlementIsActive(customerInfo: CustomerInfo): boolean {
@@ -94,56 +92,56 @@ function createSnapshot(
   };
 }
 
-async function ensureRevenueCatConfigured(): Promise<RevenueCatSnapshot | null> {
+async function ensureRevenueCatConfigured(appUserId: string): Promise<RevenueCatSnapshot | null> {
   if (!['android', 'ios', 'web'].includes(Platform.OS)) {
     return createSnapshot({
       state: 'unsupported-platform',
       message: `RevenueCat is not supported on ${Platform.OS}.`,
     });
   }
-
+  const identity = appUserId.trim();
+  if (!identity) {
+    return createSnapshot({
+      state: 'signed-out',
+      message: 'Sign in before checking TakwimuCheck Pro access.',
+    });
+  }
+  if (!appUserIdIsValid(identity)) {
+    return createSnapshot({
+      state: 'not-configured',
+      message: 'The authenticated account has an invalid RevenueCat App User ID.',
+    });
+  }
   const apiKey = getPublicApiKey();
   if (!apiKey) {
     return createSnapshot({
       state: 'not-configured',
-      message:
-        'Add the appropriate RevenueCat public SDK key to the local environment before checking subscriptions.',
-    });
-  }
-
-  const appUserId = getConfiguredAppUserId();
-  if (!appUserId || !appUserIdIsValid(appUserId)) {
-    return createSnapshot({
-      state: 'not-configured',
-      message:
-        'Add one shared, non-guessable RevenueCat App User ID to EXPO_PUBLIC_REVENUECAT_APP_USER_ID for the controlled pilot.',
+      appUserId: identity,
+      identifiedCustomer: true,
+      message: 'Add the appropriate RevenueCat public SDK key to the local environment.',
     });
   }
 
   const alreadyConfigured = await Purchases.isConfigured();
   if (!alreadyConfigured) {
     Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.DEBUG : LOG_LEVEL.INFO);
-    Purchases.configure({ apiKey, appUserID: appUserId });
+    Purchases.configure({ apiKey, appUserID: identity });
   } else {
     const currentAppUserId = await Purchases.getAppUserID();
-    if (currentAppUserId !== appUserId) {
-      await Purchases.logIn(appUserId);
+    if (currentAppUserId !== identity) {
+      await Purchases.logIn(identity);
     }
   }
-
   return null;
 }
 
-export async function getRevenueCatSnapshot(): Promise<RevenueCatSnapshot> {
+export async function getRevenueCatSnapshot(appUserId = ''): Promise<RevenueCatSnapshot> {
   try {
-    const configurationBlocker = await ensureRevenueCatConfigured();
-    if (configurationBlocker) {
-      return configurationBlocker;
-    }
+    const configurationBlocker = await ensureRevenueCatConfigured(appUserId);
+    if (configurationBlocker) return configurationBlocker;
 
     const customerInfo = await Purchases.getCustomerInfo();
-    const appUserId = await Purchases.getAppUserID();
-
+    const currentAppUserId = await Purchases.getAppUserID();
     let currentOfferingAvailable = false;
     let packageCount = 0;
     try {
@@ -151,89 +149,92 @@ export async function getRevenueCatSnapshot(): Promise<RevenueCatSnapshot> {
       currentOfferingAvailable = Boolean(offerings.current);
       packageCount = offerings.current?.availablePackages.length ?? 0;
     } catch {
-      // Entitlement reads remain useful on web even when native offerings are unavailable.
+      // Web entitlement reads remain useful when native offerings are unavailable.
     }
 
     const active = entitlementIsActive(customerInfo);
-    const platformMessage =
-      Platform.OS === 'web'
-        ? active
-          ? 'The browser is identified as the same RevenueCat customer and TakwimuCheck Pro is active.'
-          : 'The browser is identified, but TakwimuCheck Pro is not active for this customer.'
-        : currentOfferingAvailable
-          ? 'RevenueCat is connected and the current offering is available.'
-          : 'RevenueCat is connected, but no current offering is available yet.';
-
     return createSnapshot({
       state: 'ready',
       configured: true,
       entitlementActive: active,
       currentOfferingAvailable,
       packageCount,
-      appUserId,
-      identifiedCustomer: !appUserId.startsWith('$RCAnonymousID:'),
+      appUserId: currentAppUserId,
+      identifiedCustomer: !currentAppUserId.startsWith('$RCAnonymousID:'),
       purchaseActionsSupported: isNativePurchasePlatform(),
-      message: platformMessage,
+      message:
+        Platform.OS === 'web'
+          ? active
+            ? 'The browser is signed in to the same RevenueCat customer and Pro is active.'
+            : 'The browser is identified, but Pro is not active for this account.'
+          : currentOfferingAvailable
+            ? 'RevenueCat is connected and the current offering is available.'
+            : 'RevenueCat is connected, but no current offering is available yet.',
     });
   } catch (error) {
     return createSnapshot({
       state: 'unavailable',
+      appUserId: appUserId.trim(),
+      identifiedCustomer: Boolean(appUserId.trim()),
       message: formatRevenueCatError(error),
     });
   }
 }
 
-export async function presentProPaywall(): Promise<PaywallOutcome> {
+export async function presentProPaywall(appUserId: string): Promise<PaywallOutcome> {
   if (!isNativePurchasePlatform()) {
     throw new Error(
-      'Subscription purchases are completed in the Android or iOS app. Refresh the browser after the same identified customer is active on mobile.',
+      'Subscription purchases are completed in the Android or iOS app. The web app reads access for the same signed-in account.',
     );
   }
-
-  const configurationBlocker = await ensureRevenueCatConfigured();
-  if (configurationBlocker) {
-    throw new Error(configurationBlocker.message);
-  }
+  const configurationBlocker = await ensureRevenueCatConfigured(appUserId);
+  if (configurationBlocker) throw new Error(configurationBlocker.message);
 
   const result = await RevenueCatUI.presentPaywallIfNeeded({
     requiredEntitlementIdentifier: REVENUECAT_ENTITLEMENT_ID,
   });
-
   return {
     result,
-    snapshot: await getRevenueCatSnapshot(),
+    snapshot: await getRevenueCatSnapshot(appUserId),
   };
 }
 
-export async function restoreRevenueCatPurchases(): Promise<RevenueCatSnapshot> {
+export async function restoreRevenueCatPurchases(
+  appUserId: string,
+): Promise<RevenueCatSnapshot> {
   if (!isNativePurchasePlatform()) {
     throw new Error(
-      'Purchase restoration is available in the Android or iOS app. The browser reads entitlement access through the shared App User ID.',
+      'Purchase restoration is available in the Android or iOS app. Web reads access for the same signed-in account.',
     );
   }
-
-  const configurationBlocker = await ensureRevenueCatConfigured();
-  if (configurationBlocker) {
-    throw new Error(configurationBlocker.message);
-  }
+  const configurationBlocker = await ensureRevenueCatConfigured(appUserId);
+  if (configurationBlocker) throw new Error(configurationBlocker.message);
 
   const customerInfo = await Purchases.restorePurchases();
   const offerings = await Purchases.getOfferings();
-  const appUserId = await Purchases.getAppUserID();
-
+  const currentAppUserId = await Purchases.getAppUserID();
   return createSnapshot({
     state: 'ready',
     configured: true,
     entitlementActive: entitlementIsActive(customerInfo),
     currentOfferingAvailable: Boolean(offerings.current),
     packageCount: offerings.current?.availablePackages.length ?? 0,
-    appUserId,
-    identifiedCustomer: !appUserId.startsWith('$RCAnonymousID:'),
+    appUserId: currentAppUserId,
+    identifiedCustomer: !currentAppUserId.startsWith('$RCAnonymousID:'),
     purchaseActionsSupported: true,
     message: entitlementIsActive(customerInfo)
       ? 'Purchases were restored and TakwimuCheck Pro is active.'
       : 'Restore completed, but no active TakwimuCheck Pro entitlement was found.',
   });
+}
+
+export async function disconnectRevenueCatCustomer(): Promise<void> {
+  if (!(await Purchases.isConfigured())) return;
+  try {
+    await Purchases.logOut();
+  } catch {
+    // Signing out of TakwimuCheck must not fail when RevenueCat is unavailable.
+  }
 }
 
 export function paywallResultMessage(result: PAYWALL_RESULT): string {
@@ -254,9 +255,6 @@ export function paywallResultMessage(result: PAYWALL_RESULT): string {
 }
 
 export function formatRevenueCatError(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-
-  return 'RevenueCat could not be reached. Check the public SDK key, shared App User ID, offering and internet connection.';
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return 'RevenueCat could not be reached. Check the public SDK key, authenticated identity, offering and internet connection.';
 }
