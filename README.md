@@ -19,6 +19,7 @@ Implemented:
 - RevenueCat Purchases and Paywalls integration;
 - Monthly and Yearly Test Store packages for `TakwimuCheck Pro`;
 - verified Android Test Store purchase and restore workflow;
+- one identified controlled-pilot RevenueCat customer shared across Android and web;
 - backend readiness checks;
 - memory-only controlled-pilot backend credential;
 - CSV file selection and protected upload preflight;
@@ -113,14 +114,25 @@ RevenueCat Test Store uses a public SDK key:
 EXPO_PUBLIC_REVENUECAT_API_KEY
 ```
 
+The controlled pilot also requires one shared, non-guessable App User ID:
+
+```text
+EXPO_PUBLIC_REVENUECAT_APP_USER_ID
+```
+
+The Android app logs the existing anonymous Test Store customer into this identified App User ID. The browser configures RevenueCat with the same ID and can therefore read the same entitlement. The identifier is not a secret, but it must be a random UUID-style value rather than a name, email address or predictable account label.
+
 Production platform keys can use:
 
 ```text
 EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY
 EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
+EXPO_PUBLIC_REVENUECAT_WEB_API_KEY
 ```
 
 Never place RevenueCat secret keys in the mobile app.
+
+The shared pilot ID is intentionally limited to one controlled tester. A public multi-user release must replace it with authenticated per-user IDs issued by the application identity system. Hard-coding one customer ID for all public users would incorrectly share purchase access.
 
 ## Controlled-pilot backend access
 
@@ -156,6 +168,18 @@ For local web testing:
 
 ```text
 EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+Generate one controlled-pilot RevenueCat identity and place the same value in `.env.local` for both Metro-served Android and web sessions:
+
+```powershell
+$RevenueCatAppUserId = "tc_pilot_$([guid]::NewGuid().ToString('N'))"
+```
+
+Then set:
+
+```text
+EXPO_PUBLIC_REVENUECAT_APP_USER_ID=<generated value>
 ```
 
 Use `http://10.0.2.2:8000` for an Android emulator. A physical phone must use the computer's LAN address while both devices are on the same network.
@@ -199,7 +223,7 @@ Start Metro for the installed development client:
 npm run start:dev-client -- --clear
 ```
 
-A development build is required for the native RevenueCat Test Store purchase flow. Expo Go cannot perform the complete transaction.
+A development build is required for the native RevenueCat Test Store purchase flow. Expo Go cannot perform the complete transaction. Web can read the entitlement for the shared identified customer but does not restore native purchases or initiate the native Test Store paywall.
 
 ## Main routes
 
@@ -213,7 +237,7 @@ src/app/review-audit.tsx         Run history and Pro audit export
 src/app/demo.tsx                 Synthetic project overview
 src/app/validation-summary.tsx   Demonstration validation coverage
 src/app/issues.tsx               Demonstration issue workflow
-src/app/upgrade.tsx              RevenueCat subscription screen
+src/app/upgrade.tsx              RevenueCat subscription and identity status
 src/app/settings.tsx             Backend, access and purchase status
 ```
 
@@ -227,11 +251,11 @@ Completed:
 4. Backend readiness and controlled-pilot protected access.
 5. CSV selection, upload preflight and validation-run orchestration.
 6. Validation-result presentation, filtering and signed report access.
-7. Persistent live issue review and RevenueCat-gated audit export.
+7. Persistent live issue review, cross-platform pilot identity and RevenueCat-gated audit export.
 
 Next production work:
 
-1. user identity, short-lived tokens and role-based authorisation;
+1. authenticated per-user identity, short-lived tokens and role-based authorisation;
 2. server-side RevenueCat entitlement verification for production-grade premium enforcement;
 3. Google Play subscription products and internal testing;
 4. production deployment, privacy documentation and store-release preparation.
