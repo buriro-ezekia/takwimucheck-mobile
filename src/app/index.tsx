@@ -54,6 +54,11 @@ export default function HomeScreen() {
                 onPress={() => router.push('/upload')}
               />
               <PrimaryButton
+                label="Review validation results"
+                variant="secondary"
+                onPress={() => router.push('/protected-data')}
+              />
+              <PrimaryButton
                 label="Open demonstration project"
                 variant="secondary"
                 onPress={() => router.push('/demo')}
@@ -64,8 +69,8 @@ export default function HomeScreen() {
           <View style={styles.pilotNotice}>
             <Text style={styles.pilotNoticeTitle}>Controlled-pilot CSV workflow</Text>
             <Text style={styles.pilotNoticeText}>
-              Authorised pilot sessions can now select a UTF-8 CSV, review server-side preflight
-              results and deliberately start a protected validation run.
+              Authorised pilot sessions can select a UTF-8 CSV, review server-side preflight,
+              start protected validation, filter quality findings and open generated reports.
             </Text>
           </View>
 
@@ -99,8 +104,8 @@ export default function HomeScreen() {
             />
 
             <DashboardCard
-              title="Protected backend summary"
-              description="Inspect stored validation-run and issue metadata without displaying observed respondent values."
+              title="Validation results and reports"
+              description="Select a run, review aggregate quality findings, filter issue metadata and open short-lived report links."
               onPress={() => router.push('/protected-data')}
             />
 
@@ -131,7 +136,7 @@ export default function HomeScreen() {
 
           <Text style={styles.footerText}>
             Mobile-first and low-connectivity optimised. Upload, validation, protected refreshes,
-            exports and purchases require an internet connection.
+            report access and purchases require an internet connection.
           </Text>
         </View>
       </ScrollView>
