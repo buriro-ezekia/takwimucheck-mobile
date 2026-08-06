@@ -11,17 +11,18 @@ import { REVENUECAT_ENTITLEMENT_ID } from '@/services/revenuecat';
 
 const freeFeatures = [
   'Synthetic demonstration project',
-  'One user dataset up to 500 records',
-  'Standard validation checks',
-  'On-screen quality summary',
+  'One controlled-pilot dataset up to 500 records',
+  'Standard validation checks and result filters',
+  'Persistent protected issue review',
+  'On-screen review history',
 ];
 
 const proFeatures = [
-  'Up to 10 active projects',
-  'Datasets up to 10,000 records',
-  'Custom validation metadata',
-  'Project history and issue review',
-  'Full CSV, HTML and Excel exports',
+  'Complete persistent review-audit CSV export',
+  'Short-lived signed export link',
+  'Monthly or annual entitlement access',
+  'Purchase restoration across supported devices',
+  'Future expanded project history and limits',
 ];
 
 export default function UpgradeScreen() {
@@ -58,8 +59,8 @@ export default function UpgradeScreen() {
           <AppHeader
             showBack
             eyebrow="RevenueCat Test Store"
-            title="Unlock TakwimuCheck Pro"
-            subtitle="Monthly and annual products share one entitlement, while prices and packages are loaded from the current RevenueCat offering."
+            title="Unlock the complete review audit"
+            subtitle="Monthly and annual products share one entitlement. The active entitlement unlocks the signed full review-audit CSV without restricting core issue review."
           />
 
           <View
@@ -83,21 +84,21 @@ export default function UpgradeScreen() {
               />
               <StatusFact label="Packages" value={String(snapshot.packageCount)} />
               <StatusFact
-                label="Pro access"
-                value={snapshot.entitlementActive ? 'Active' : 'Inactive'}
+                label="Audit export"
+                value={snapshot.entitlementActive ? 'Unlocked' : 'Locked'}
               />
             </View>
           </View>
 
           <View style={styles.planGrid}>
             <PlanCard
-              name="Free"
-              description="Evaluate the workflow and validate a small dataset."
+              name="Pilot access"
+              description="Validate, inspect and review issues without hiding the core quality-assurance workflow."
               features={freeFeatures}
             />
             <PlanCard
               name="Pro"
-              description="For supervisors and data managers handling active survey projects."
+              description="Unlock the complete portable audit trail for supervisors and data managers."
               features={proFeatures}
               highlighted
             />
@@ -107,14 +108,15 @@ export default function UpgradeScreen() {
             <Text style={styles.entitlementLabel}>Entitlement identifier</Text>
             <Text style={styles.entitlementValue}>{REVENUECAT_ENTITLEMENT_ID}</Text>
             <Text style={styles.entitlementHelp}>
-              The monthly and annual Test Store products must both unlock this entitlement.
+              Monthly and annual products must both unlock this entitlement. Prices and package
+              availability are loaded from the current RevenueCat Offering rather than hard-coded.
             </Text>
           </View>
 
           <PrimaryButton
             label={
               snapshot.entitlementActive
-                ? 'Pro access is active'
+                ? 'Complete audit export is unlocked'
                 : actionInProgress
                   ? 'Opening RevenueCat…'
                   : 'View subscription options'
@@ -137,7 +139,7 @@ export default function UpgradeScreen() {
 
           <Text style={styles.footerText}>
             Test Store purchases behave like subscriptions for entitlement testing but do not charge
-            real money. A native development build is required for the full purchase flow.
+            real money. A native development build is required for the complete purchase flow.
           </Text>
         </View>
       </ScrollView>
