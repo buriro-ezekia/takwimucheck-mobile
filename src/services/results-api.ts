@@ -1,4 +1,4 @@
-// Provides typed clients for filtered validation results and short-lived report links.
+// Provides typed clients for authenticated validation results and short-lived report links.
 
 import {
   ApiError,
@@ -98,13 +98,10 @@ function requireBaseUrl(): string {
   return configuration.baseUrl;
 }
 
-function requireAccessKey(accessKey: string): string {
-  const trimmed = accessKey.trim();
+function requireAccessToken(accessToken: string): string {
+  const trimmed = accessToken.trim();
   if (!trimmed) {
-    throw new ApiError(
-      'Enter the protected-route access key for this app session.',
-      'missing-access-key',
-    );
+    throw new ApiError('Sign in before opening protected validation results.', 'missing-access-key');
   }
   return trimmed;
 }
@@ -124,9 +121,9 @@ function extractErrorMessage(payload: unknown): string | null {
   return null;
 }
 
-async function requestResult<T>(path: string, accessKey: string): Promise<T> {
+async function requestResult<T>(path: string, accessToken: string): Promise<T> {
   const baseUrl = requireBaseUrl();
-  const key = requireAccessKey(accessKey);
+  const token = requireAccessToken(accessToken);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), RESULTS_TIMEOUT_MS);
 
@@ -134,7 +131,7 @@ async function requestResult<T>(path: string, accessKey: string): Promise<T> {
     const response = await fetch(`${baseUrl}${path}`, {
       headers: {
         Accept: 'application/json',
-        'x-api-key': key,
+        Authorization: `Bearer ${token}`,
       },
       signal: controller.signal,
     });
@@ -150,26 +147,33 @@ async function requestResult<T>(path: string, accessKey: string): Promise<T> {
     }
 
     if (!response.ok) {
-      if (response.status === 403) {
+      const message = extractErrorMessage(payload);
+      if (response.status === 401) {
         throw new ApiError(
-          'Protected backend access was denied. Check the session access key.',
+          message ?? 'Your session has expired. Sign in again.',
           'access-denied',
           response.status,
           payload,
         );
       }
-
+      if (response.status === 403) {
+        throw new ApiError(
+          message ?? 'Your account is not authorised to open this result.',
+          'access-denied',
+          response.status,
+          payload,
+        );
+      }
       if (response.status === 404) {
         throw new ApiError(
-          extractErrorMessage(payload) ?? 'The requested validation result was not found.',
+          message ?? 'The requested validation result was not found.',
           'storage-unavailable',
           response.status,
           payload,
         );
       }
-
       throw new ApiError(
-        extractErrorMessage(payload) ?? `The backend returned status ${response.status}.`,
+        message ?? `The backend returned status ${response.status}.`,
         'http',
         response.status,
         payload,
@@ -268,18 +272,18 @@ function encodeQuery(filters: ResultFilters): string {
 }
 
 export async function getValidationRunDetail(
-  accessKey: string,
+  accessToken: string,
   validationRunId: string,
 ): Promise<ValidationRunDetailData> {
   const runId = encodeURIComponent(validationRunId.trim());
   const envelope = parseDetailEnvelope(
-    await requestResult<unknown>(`/validation-results/runs/${runId}`, accessKey),
+    await requestResult<unknown>(`/validation-results/runs/${runId}`, accessToken),
   );
   return envelope.data;
 }
 
 export async function getFilteredValidationIssues(
-  accessKey: string,
+  accessToken: string,
   validationRunId: string,
   filters: ResultFilters = {},
 ): Promise<FilteredIssueData> {
@@ -288,13 +292,13 @@ export async function getFilteredValidationIssues(
     encodeQuery(filters),
   ].join('&');
   const envelope = parseIssuesEnvelope(
-    await requestResult<unknown>(`/validation-results/issues?${query}`, accessKey),
+    await requestResult<unknown>(`/validation-results/issues?${query}`, accessToken),
   );
   return envelope.data;
 }
 
 export async function getValidationReportLink(
-  accessKey: string,
+  accessToken: string,
   validationRunId: string,
   artifactKey: string,
 ): Promise<ReportLinkData> {
@@ -303,7 +307,7 @@ export async function getValidationReportLink(
   const envelope = parseReportLinkEnvelope(
     await requestResult<unknown>(
       `/validation-results/runs/${runId}/reports/${artifact}/link`,
-      accessKey,
+      accessToken,
     ),
   );
   return envelope.data;
