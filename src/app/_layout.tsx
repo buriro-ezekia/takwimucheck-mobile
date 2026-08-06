@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { SessionBootstrap } from '@/components/session-bootstrap';
 import { Colours } from '@/constants/colours';
 import { BackendAccessProvider } from '@/providers/backend-access-provider';
 import { RevenueCatProvider } from '@/providers/revenuecat-provider';
@@ -15,6 +16,7 @@ export default function RootLayout() {
       <BackendAccessProvider>
         <RevenueCatProvider>
           <ReviewProvider>
+            <SessionBootstrap />
             <StatusBar style="dark" />
             <Stack
               screenOptions={{
