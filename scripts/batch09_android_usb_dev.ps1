@@ -197,17 +197,21 @@ function Start-Metro {
 
     Write-Host "Starting Metro directly with the local Expo CLI..." -ForegroundColor Cyan
 
+    # Windows PowerShell Start-Process joins ArgumentList into one command line.
+    # Quote the Expo CLI path explicitly because the repository path contains spaces.
+    $metroArguments = @(
+        ('"{0}"' -f $expoCli),
+        "start",
+        "--dev-client",
+        "--clear",
+        "--localhost",
+        "--port",
+        [string]$MetroPort
+    ) -join " "
+
     $metroProcess = Start-Process `
         -FilePath $nodeExe `
-        -ArgumentList @(
-            $expoCli,
-            "start",
-            "--dev-client",
-            "--clear",
-            "--localhost",
-            "--port",
-            [string]$MetroPort
-        ) `
+        -ArgumentList $metroArguments `
         -WorkingDirectory $RepoRoot `
         -RedirectStandardOutput $MetroStdoutLog `
         -RedirectStandardError $MetroStderrLog `
@@ -227,13 +231,15 @@ function Start-Metro {
         }
 
         if ($metroProcess.HasExited) {
+            $metroProcess.Refresh()
+            $exitCode = if ($null -ne $metroProcess.ExitCode) { [string]$metroProcess.ExitCode } else { "unknown" }
             $logTail = Get-MetroLogTail
             if ($logTail.Count -gt 0) {
                 Write-Host ""
                 $logTail | ForEach-Object { Write-Host $_ }
                 Write-Host ""
             }
-            throw "Metro exited before becoming healthy. Exit code: $($metroProcess.ExitCode). The first actionable Metro error is shown above."
+            throw "Metro exited before becoming healthy. Exit code: $exitCode. The first actionable Metro error is shown above."
         }
     } while ((Get-Date) -lt $deadline)
 
