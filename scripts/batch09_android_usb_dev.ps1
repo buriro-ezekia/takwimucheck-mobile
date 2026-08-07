@@ -79,8 +79,8 @@ function Set-UsbReverseMappings {
         throw "Metro reverse mapping tcp:$MetroPort was not created."
     }
 
-    Write-Host "ADB reverse $BackendPort: passed" -ForegroundColor Green
-    Write-Host "ADB reverse $MetroPort: passed" -ForegroundColor Green
+    Write-Host "ADB reverse ${BackendPort}: passed" -ForegroundColor Green
+    Write-Host "ADB reverse ${MetroPort}: passed" -ForegroundColor Green
 }
 
 function Assert-MobileEnvironment {
@@ -193,7 +193,7 @@ function Launch-DevelopmentClient {
     Start-Sleep -Seconds 1
 
     $encodedMetro = [System.Uri]::EscapeDataString($MetroUrl)
-    $launchUrl = "$AppScheme://expo-development-client/?url=$encodedMetro"
+    $launchUrl = "${AppScheme}://expo-development-client/?url=$encodedMetro"
 
     $result = @(adb -s $Serial shell am start -W -a android.intent.action.VIEW -d $launchUrl $PackageName)
     if ($LASTEXITCODE -ne 0) {
