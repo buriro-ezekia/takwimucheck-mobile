@@ -1,4 +1,4 @@
-# Verifies the Redmi USB development path, repairs ADB reverse mappings, starts Metro when needed, and launches TakwimuCheck.
+# Verifies the Redmi USB development path, repairs ADB reverse mappings, starts Metro reliably, and launches TakwimuCheck.
 
 [CmdletBinding()]
 param()
@@ -14,6 +14,9 @@ $MetroPort = 8081
 $BackendUrl = "http://127.0.0.1:$BackendPort"
 $MetroUrl = "http://127.0.0.1:$MetroPort"
 $ExpectedApiLine = "EXPO_PUBLIC_API_BASE_URL=$BackendUrl"
+$RuntimeLogRoot = Join-Path $env:TEMP "takwimucheck-batch09"
+$MetroStdoutLog = Join-Path $RuntimeLogRoot "metro.stdout.log"
+$MetroStderrLog = Join-Path $RuntimeLogRoot "metro.stderr.log"
 
 function Get-SingleAndroidDevice {
     $lines = @(adb devices)
@@ -135,12 +138,7 @@ function Test-Metro {
     }
 }
 
-function Start-Metro {
-    if (Test-Metro) {
-        Write-Host "Metro status: already healthy" -ForegroundColor Green
-        return
-    }
-
+function Stop-StaleMetroListeners {
     $listeners = @(
         Get-NetTCPConnection -LocalPort $MetroPort -State Listen -ErrorAction SilentlyContinue
     )
@@ -157,30 +155,100 @@ function Start-Metro {
 
         Write-Host "Stopping stale Metro/Node process PID $($process.Id) on port $MetroPort" -ForegroundColor Yellow
         Stop-Process -Id $process.Id -Force
+        Start-Sleep -Milliseconds 750
+    }
+}
+
+function Get-MetroLogTail {
+    $lines = @()
+
+    if (Test-Path $MetroStdoutLog) {
+        $lines += "--- Metro stdout ---"
+        $lines += @(Get-Content -Path $MetroStdoutLog -Tail 40 -ErrorAction SilentlyContinue)
     }
 
-    $escapedRepo = $RepoRoot.Replace("'", "''")
-    $metroCommand = "Set-Location -LiteralPath '$escapedRepo'; npx expo start --dev-client --clear --localhost --port $MetroPort"
+    if (Test-Path $MetroStderrLog) {
+        $lines += "--- Metro stderr ---"
+        $lines += @(Get-Content -Path $MetroStderrLog -Tail 40 -ErrorAction SilentlyContinue)
+    }
 
-    Start-Process -FilePath "powershell.exe" -ArgumentList @(
-        "-NoExit",
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-Command", $metroCommand
-    ) | Out-Null
+    return @($lines)
+}
 
-    Write-Host "Starting Metro in a dedicated PowerShell window..." -ForegroundColor Cyan
+function Start-Metro {
+    if (Test-Metro) {
+        Write-Host "Metro status: already healthy" -ForegroundColor Green
+        return
+    }
 
-    $deadline = (Get-Date).AddSeconds(75)
+    Stop-StaleMetroListeners
+
+    New-Item -ItemType Directory -Path $RuntimeLogRoot -Force | Out-Null
+    Remove-Item -Path $MetroStdoutLog -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $MetroStderrLog -Force -ErrorAction SilentlyContinue
+
+    $nodeCommand = Get-Command node.exe -ErrorAction Stop
+    $nodeExe = [string]$nodeCommand.Source
+    $expoCli = Join-Path $RepoRoot "node_modules\expo\bin\cli"
+
+    if (-not (Test-Path $expoCli)) {
+        throw "The local Expo CLI was not found at '$expoCli'. Run npm install in the mobile repository before continuing."
+    }
+
+    Write-Host "Starting Metro directly with the local Expo CLI..." -ForegroundColor Cyan
+
+    $metroProcess = Start-Process `
+        -FilePath $nodeExe `
+        -ArgumentList @(
+            $expoCli,
+            "start",
+            "--dev-client",
+            "--clear",
+            "--localhost",
+            "--port",
+            [string]$MetroPort
+        ) `
+        -WorkingDirectory $RepoRoot `
+        -RedirectStandardOutput $MetroStdoutLog `
+        -RedirectStandardError $MetroStderrLog `
+        -WindowStyle Hidden `
+        -PassThru
+
+    $deadline = (Get-Date).AddSeconds(90)
+
     do {
         Start-Sleep -Seconds 2
+
         if (Test-Metro) {
             Write-Host "Metro status: packager-status:running" -ForegroundColor Green
+            Write-Host "Metro PID: $($metroProcess.Id)" -ForegroundColor Green
+            Write-Host "Metro logs: $RuntimeLogRoot" -ForegroundColor DarkGray
             return
+        }
+
+        if ($metroProcess.HasExited) {
+            $logTail = Get-MetroLogTail
+            if ($logTail.Count -gt 0) {
+                Write-Host ""
+                $logTail | ForEach-Object { Write-Host $_ }
+                Write-Host ""
+            }
+            throw "Metro exited before becoming healthy. Exit code: $($metroProcess.ExitCode). The first actionable Metro error is shown above."
         }
     } while ((Get-Date) -lt $deadline)
 
-    throw "Metro did not become healthy on $MetroUrl within 75 seconds. Review the dedicated Metro window for the first error."
+    $logTail = Get-MetroLogTail
+    if ($logTail.Count -gt 0) {
+        Write-Host ""
+        $logTail | ForEach-Object { Write-Host $_ }
+        Write-Host ""
+    }
+
+    if (-not $metroProcess.HasExited) {
+        Stop-Process -Id $metroProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+
+    throw "Metro did not become healthy on $MetroUrl within 90 seconds. The captured Metro output is shown above."
 }
 
 function Launch-DevelopmentClient {
@@ -230,5 +298,6 @@ Write-Host "============================================" -ForegroundColor Green
 Write-Host "Backend: $BackendUrl"
 Write-Host "Metro:   $MetroUrl"
 Write-Host "Device:  $serial"
+Write-Host "Metro logs: $RuntimeLogRoot"
 Write-Host ""
 Write-Host "The Redmi should now load TakwimuCheck directly. Sign in with the Administrator account and verify POST /auth/login and GET /auth/me return 200 in Uvicorn."
