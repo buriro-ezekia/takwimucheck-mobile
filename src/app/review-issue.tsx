@@ -1,4 +1,4 @@
-// Records a validated human decision for one protected issue and shows persistent history.
+// Records one authenticated human decision and shows append-only issue history.
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -19,6 +19,7 @@ import { DashboardCard } from '@/components/dashboard-card';
 import { PrimaryButton } from '@/components/primary-button';
 import { Colours } from '@/constants/colours';
 import { useBackendAccess } from '@/providers/backend-access-provider';
+import { roleAtLeast } from '@/services/auth-api';
 import { describeApiError, type ProtectedIssueRecord } from '@/services/api';
 import {
   getReviewHistory,
@@ -29,26 +30,10 @@ import {
 import { getFilteredValidationIssues } from '@/services/results-api';
 
 const actions: Array<{ value: ReviewAction; label: string; description: string }> = [
-  {
-    value: 'accept_finding',
-    label: 'Accept finding',
-    description: 'Confirm that the validation finding is correct and should remain recorded.',
-  },
-  {
-    value: 'defer_finding',
-    label: 'Defer',
-    description: 'Keep the finding unresolved while additional evidence is collected.',
-  },
-  {
-    value: 'reject_finding',
-    label: 'Reject finding',
-    description: 'Record that the finding is not valid under the approved review evidence.',
-  },
-  {
-    value: 'propose_correction',
-    label: 'Propose correction',
-    description: 'Record a proposed value without changing the uploaded respondent record.',
-  },
+  { value: 'accept_finding', label: 'Accept finding', description: 'Confirm that the finding is valid and should remain recorded.' },
+  { value: 'defer_finding', label: 'Defer', description: 'Keep the finding unresolved while additional evidence is collected.' },
+  { value: 'reject_finding', label: 'Reject finding', description: 'Record that the finding is not valid under the approved evidence.' },
+  { value: 'propose_correction', label: 'Propose correction', description: 'Record a proposed value without modifying the uploaded source record.' },
 ];
 
 export default function ReviewIssueScreen() {
@@ -56,12 +41,12 @@ export default function ReviewIssueScreen() {
   const params = useLocalSearchParams<{ runId?: string; issueId?: string }>();
   const runId = readParam(params.runId);
   const issueId = readParam(params.issueId);
-  const { accessKey, snapshot, refreshProtectedData } = useBackendAccess();
+  const { accessKey, signedIn, user, snapshot, refreshProtectedData } = useBackendAccess();
+  const authorised = roleAtLeast(user?.role, 'reviewer');
 
   const [issue, setIssue] = useState<ProtectedIssueRecord | null>(null);
   const [history, setHistory] = useState<ReviewDecisionRecord[]>([]);
   const [action, setAction] = useState<ReviewAction>('accept_finding');
-  const [reviewer, setReviewer] = useState('');
   const [reason, setReason] = useState('');
   const [proposedValue, setProposedValue] = useState('');
   const [pendingClientDecisionId, setPendingClientDecisionId] = useState('');
@@ -80,29 +65,19 @@ export default function ReviewIssueScreen() {
       setLoading(false);
       return;
     }
-
     let active = true;
     setLoading(true);
     setErrorMessage('');
-
     Promise.all([
-      getFilteredValidationIssues(accessKey, runId, {
-        query: issueId,
-        limit: 100,
-        offset: 0,
-      }),
+      getFilteredValidationIssues(accessKey, runId, { query: issueId, limit: 100, offset: 0 }),
       getReviewHistory(accessKey, runId, { issueId, limit: 100, offset: 0 }),
     ])
       .then(([issueResult, historyResult]) => {
         if (!active) return;
-        const selectedIssue = issueResult.issues.find(
-          (candidate) => readText(candidate.issue_id) === issueId,
-        );
+        const selectedIssue = issueResult.issues.find((candidate) => readText(candidate.issue_id) === issueId);
         setIssue(selectedIssue ?? null);
         setHistory(historyResult.decisions);
-        if (!selectedIssue) {
-          setErrorMessage('The requested issue was not found in this validation run.');
-        }
+        if (!selectedIssue) setErrorMessage('The requested issue was not found.');
       })
       .catch((error) => {
         if (!active) return;
@@ -113,7 +88,6 @@ export default function ReviewIssueScreen() {
       .finally(() => {
         if (active) setLoading(false);
       });
-
     return () => {
       active = false;
     };
@@ -121,15 +95,11 @@ export default function ReviewIssueScreen() {
 
   useEffect(() => {
     setPendingClientDecisionId('');
-  }, [action, issueId, proposedValue, reason, reviewer, runId]);
+  }, [action, issueId, proposedValue, reason, runId]);
 
   const submit = async () => {
-    if (!issue) {
-      Alert.alert('Issue unavailable', 'Refresh the issue before submitting a decision.');
-      return;
-    }
-    if (reviewer.trim().length < 2) {
-      Alert.alert('Reviewer required', 'Enter the reviewer name before submitting.');
+    if (!issue || !user || !authorised) {
+      Alert.alert('Review unavailable', 'Sign in with the Reviewer role or higher.');
       return;
     }
     if (reason.trim().length < 3) {
@@ -142,9 +112,7 @@ export default function ReviewIssueScreen() {
     }
 
     const clientDecisionId = pendingClientDecisionId || buildClientDecisionId(issueId);
-    if (!pendingClientDecisionId) {
-      setPendingClientDecisionId(clientDecisionId);
-    }
+    if (!pendingClientDecisionId) setPendingClientDecisionId(clientDecisionId);
 
     setSubmitting(true);
     setErrorMessage('');
@@ -154,7 +122,6 @@ export default function ReviewIssueScreen() {
         issue_id: issueId,
         validation_run_id: runId,
         action,
-        reviewer: reviewer.trim(),
         decision_reason: reason.trim(),
         proposed_value: action === 'propose_correction' ? proposedValue.trim() : undefined,
         expected_previous_status: readText(issue.status) || 'open',
@@ -166,61 +133,46 @@ export default function ReviewIssueScreen() {
       await refreshProtectedData();
       setRefreshToken((value) => value + 1);
       Alert.alert(
-        result.created_count ? 'Review decision recorded' : 'Review decision already recorded',
+        result.created_count ? 'Review decision recorded' : 'Decision already recorded',
         `${humanise(saved.action)} was saved with status ${humanise(saved.review_status)}.`,
       );
     } catch (error) {
       const message = describeApiError(error);
       setErrorMessage(message);
-      Alert.alert(
-        'Submit review decision',
-        `${message}\n\nRetrying without changing the form will reuse the same decision identifier.`,
-      );
+      Alert.alert('Submit review decision', `${message}\n\nRetrying without changing the form reuses the same decision identifier.`);
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (!snapshot) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.container}>
-            <AppHeader
-              showBack
-              eyebrow="Live issue review"
-              title="Protected access required"
-              subtitle="Authorise the controlled-pilot backend session before recording a decision."
-            />
-            <DashboardCard title="Access required">
-              <PrimaryButton
-                label="Open backend access settings"
-                onPress={() => router.replace('/settings')}
-              />
-            </DashboardCard>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    );
+  if (!signedIn || !snapshot) {
+    return <AccessRequired onOpen={() => router.replace('/sign-in')} message="Sign in before opening protected issue details." />;
+  }
+
+  if (!authorised) {
+    return <AccessRequired onOpen={() => router.replace('/settings')} message={`The ${humanise(user?.role ?? 'viewer')} role can inspect findings but cannot submit review decisions.`} />;
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.container}>
           <AppHeader
             showBack
-            eyebrow="Live issue review"
-            title="Record a human review decision"
-            subtitle="The decision is persisted in the backend and appended to the review audit history."
+            eyebrow="Authenticated issue review"
+            title="Record a human decision"
+            subtitle="The backend derives reviewer identity from the signed-in account and appends every decision to history."
           />
+
+          <View style={styles.identityNotice}>
+            <Text style={styles.identityTitle}>Authenticated reviewer</Text>
+            <Text style={styles.identityText}>{user?.display_name} · {user?.email} · {humanise(user?.role ?? '')}</Text>
+          </View>
 
           {loading ? (
             <View style={styles.loadingCard}>
               <ActivityIndicator size="small" color={Colours.brand} />
-              <Text style={styles.helperText}>Loading issue details and review history…</Text>
+              <Text style={styles.helperText}>Loading issue and decision history…</Text>
             </View>
           ) : null}
 
@@ -233,99 +185,61 @@ export default function ReviewIssueScreen() {
 
           {issue ? (
             <>
-              <DashboardCard
-                title={readText(issue.variable_name) || 'Dataset-level issue'}
-                description="Observed respondent values remain excluded from this protected screen.">
+              <DashboardCard title={readText(issue.variable_name) || 'Dataset-level issue'} description="Observed respondent values remain excluded from this protected screen.">
                 <View style={styles.pillRow}>
-                  <Text style={[styles.pill, styles.errorPill]}>
-                    {humanise(readText(issue.severity) || 'unknown')}
-                  </Text>
+                  <Text style={[styles.pill, styles.errorPill]}>{humanise(readText(issue.severity) || 'unknown')}</Text>
                   <Text style={styles.pill}>{humanise(readText(issue.status) || 'open')}</Text>
                 </View>
                 <DetailRow label="Issue ID" value={issueId} />
-                <DetailRow label="Run ID" value={runId} />
                 <DetailRow label="Record" value={readText(issue.record_id) || 'Dataset level'} />
                 <DetailRow label="Rule" value={readText(issue.rule_id) || 'Not recorded'} />
-                <DetailRow label="Type" value={humanise(readText(issue.issue_type)) || 'Not recorded'} />
                 <DetailRow label="Expected" value={readText(issue.expected_rule) || 'Not recorded'} />
-                <Text style={styles.issueMessage}>
-                  {readText(issue.message) || 'No validation message was recorded.'}
-                </Text>
+                <Text style={styles.issueMessage}>{readText(issue.message) || 'No message recorded.'}</Text>
               </DashboardCard>
 
-              <DashboardCard
-                title="1. Choose review action"
-                description="Every action creates a new append-only history record.">
+              <DashboardCard title="Choose review action">
                 <View style={styles.actionStack}>
                   {actions.map((candidate) => (
-                    <ActionOption
+                    <Pressable
                       key={candidate.value}
-                      label={candidate.label}
-                      description={candidate.description}
-                      selected={candidate.value === action}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: candidate.value === action }}
                       onPress={() => setAction(candidate.value)}
-                    />
+                      style={({ pressed }) => [styles.actionOption, candidate.value === action && styles.actionOptionSelected, pressed && styles.pressed]}>
+                      <View style={styles.actionCopy}>
+                        <Text style={styles.actionLabel}>{candidate.label}</Text>
+                        <Text style={styles.actionDescription}>{candidate.description}</Text>
+                      </View>
+                    </Pressable>
                   ))}
                 </View>
-                <View style={styles.actionNotice}>
-                  <Text style={styles.actionNoticeTitle}>{actionDetails.label}</Text>
-                  <Text style={styles.actionNoticeText}>{actionDetails.description}</Text>
-                </View>
+                <Text style={styles.helperText}>{actionDetails.description}</Text>
               </DashboardCard>
 
-              <DashboardCard
-                title="2. Reviewer evidence"
-                description="Reviewer identity and reason are mandatory and become part of the audit trail.">
-                <InputField
-                  label="Reviewer name"
-                  value={reviewer}
-                  onChangeText={setReviewer}
-                  placeholder="For example, Asha Msuya"
-                  maxLength={120}
-                />
-                <InputField
-                  label="Decision reason"
-                  value={reason}
-                  onChangeText={setReason}
-                  placeholder="State the evidence or reason for this decision"
-                  maxLength={1000}
-                  multiline
-                />
+              <DashboardCard title="Reviewer evidence" description={`Reviewer is fixed to ${user?.display_name}. Only the reason and optional correction proposal are entered here.`}>
+                <InputField label="Decision reason" value={reason} onChangeText={setReason} placeholder="State the evidence or reason" maxLength={1000} multiline />
                 {action === 'propose_correction' ? (
-                  <InputField
-                    label="Proposed value"
-                    value={proposedValue}
-                    onChangeText={setProposedValue}
-                    placeholder="Enter the proposed value"
-                    maxLength={1000}
-                  />
+                  <InputField label="Proposed value" value={proposedValue} onChangeText={setProposedValue} placeholder="Enter the proposed value" maxLength={1000} />
                 ) : null}
-                <PrimaryButton
-                  label={submitting ? 'Recording review decision…' : 'Submit review decision'}
-                  disabled={submitting}
-                  onPress={submit}
-                />
+                <PrimaryButton label={submitting ? 'Recording decision…' : 'Submit review decision'} disabled={submitting} onPress={() => void submit()} />
               </DashboardCard>
 
-              <DashboardCard
-                title={`Persistent review history — ${history.length}`}
-                description="Newest decisions appear first. Proposed values are reviewer artefacts; original observed values remain excluded.">
-                {history.length > 0 ? (
-                  history.map((decision) => (
-                    <HistoryCard key={decision.decision_id} decision={decision} />
-                  ))
-                ) : (
-                  <Text style={styles.helperText}>No decisions have been recorded for this issue.</Text>
-                )}
+              <DashboardCard title={`Persistent review history — ${history.length}`}>
+                {history.length ? history.map((decision) => (
+                  <View key={decision.decision_id} style={styles.historyCard}>
+                    <View style={styles.historyHeading}>
+                      <Text style={styles.historyAction}>{humanise(decision.action)}</Text>
+                      <Text style={styles.historyStatus}>{humanise(decision.review_status)}</Text>
+                    </View>
+                    <DetailRow label="Reviewer" value={decision.reviewer || 'Not recorded'} />
+                    <DetailRow label="Reason" value={decision.decision_reason || 'Not recorded'} />
+                    {decision.proposed_value ? <DetailRow label="Proposed" value={decision.proposed_value} /> : null}
+                    <DetailRow label="Recorded" value={formatDate(decision.created_at)} />
+                  </View>
+                )) : <Text style={styles.helperText}>No decisions have been recorded for this issue.</Text>}
               </DashboardCard>
 
-              <PrimaryButton
-                label="Return to review queue"
-                variant="secondary"
-                onPress={() =>
-                  router.replace({ pathname: '/review-queue', params: { runId } })
-                }
-              />
+              <PrimaryButton label="Return to review queue" variant="secondary" onPress={() => router.replace({ pathname: '/review-queue', params: { runId } })} />
             </>
           ) : null}
         </View>
@@ -334,121 +248,46 @@ export default function ReviewIssueScreen() {
   );
 }
 
-function ActionOption({
-  label,
-  description,
-  selected,
-  onPress,
-}: {
-  label: string;
-  description: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
+function AccessRequired({ message, onOpen }: { message: string; onOpen: () => void }) {
   return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionOption,
-        selected && styles.actionOptionSelected,
-        pressed && styles.pressed,
-      ]}>
-      <View style={[styles.radio, selected && styles.radioSelected]}>
-        {selected ? <View style={styles.radioDot} /> : null}
-      </View>
-      <View style={styles.actionCopy}>
-        <Text style={styles.actionLabel}>{label}</Text>
-        <Text style={styles.actionDescription}>{description}</Text>
-      </View>
-    </Pressable>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.container}>
+          <AppHeader showBack eyebrow="Authenticated issue review" title="Access required" subtitle={message} />
+          <DashboardCard title="Account access"><PrimaryButton label="Open account settings" onPress={onOpen} /></DashboardCard>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
-function InputField({
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  maxLength,
-  multiline = false,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  maxLength: number;
-  multiline?: boolean;
-}) {
+function InputField({ label, value, onChangeText, placeholder, maxLength, multiline = false }: { label: string; value: string; onChangeText: (value: string) => void; placeholder: string; maxLength: number; multiline?: boolean }) {
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.inputLabel}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={Colours.textMuted}
-        autoCapitalize="sentences"
-        autoCorrect
-        maxLength={maxLength}
-        multiline={multiline}
-        textAlignVertical={multiline ? 'top' : 'center'}
-        style={[styles.input, multiline && styles.multilineInput]}
-      />
-      <Text style={styles.characterCount}>
-        {value.length.toLocaleString()} / {maxLength.toLocaleString()}
-      </Text>
-    </View>
-  );
-}
-
-function HistoryCard({ decision }: { decision: ReviewDecisionRecord }) {
-  return (
-    <View style={styles.historyCard}>
-      <View style={styles.historyHeading}>
-        <Text style={styles.historyAction}>{humanise(decision.action)}</Text>
-        <Text style={styles.historyStatus}>{humanise(decision.review_status)}</Text>
-      </View>
-      <DetailRow label="Reviewer" value={decision.reviewer || 'Not recorded'} />
-      <DetailRow label="Reason" value={decision.decision_reason || 'Not recorded'} />
-      {decision.proposed_value ? (
-        <DetailRow label="Proposed" value={decision.proposed_value} />
-      ) : null}
-      <DetailRow label="Previous" value={humanise(decision.previous_status || 'open')} />
-      <DetailRow label="Recorded" value={formatDate(decision.created_at)} />
+      <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={Colours.textMuted} maxLength={maxLength} multiline={multiline} textAlignVertical={multiline ? 'top' : 'center'} style={[styles.input, multiline && styles.multilineInput]} />
+      <Text style={styles.characterCount}>{value.length} / {maxLength}</Text>
     </View>
   );
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={styles.detailValue}>{value}</Text>
-    </View>
-  );
+  return <View style={styles.detailRow}><Text style={styles.detailLabel}>{label}</Text><Text style={styles.detailValue}>{value}</Text></View>;
 }
 
 function buildClientDecisionId(issueId: string): string {
-  const random = Math.random().toString(36).slice(2, 10);
-  return `mobile:${issueId}:${Date.now()}:${random}`;
+  return `mobile:${issueId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function readParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
-
 function readText(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  return String(value).trim();
+  return value === null || value === undefined ? '' : String(value).trim();
 }
-
 function humanise(value: string): string {
   return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
 }
-
 function formatDate(value: string): string {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
@@ -458,89 +297,35 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colours.background },
   scrollContent: { alignItems: 'center', paddingHorizontal: 18, paddingVertical: 24 },
   container: { width: '100%', maxWidth: 820, gap: 18 },
-  loadingCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: Colours.surface,
-    borderRadius: 14,
-    padding: 16,
-  },
+  identityNotice: { backgroundColor: Colours.successSoft, borderRadius: 16, padding: 16, gap: 4 },
+  identityTitle: { color: Colours.success, fontSize: 14, fontWeight: '900' },
+  identityText: { color: Colours.text, fontSize: 13, lineHeight: 19 },
+  loadingCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colours.surface, borderRadius: 14, padding: 16 },
   helperText: { color: Colours.textMuted, fontSize: 13, lineHeight: 19 },
   errorCard: { backgroundColor: Colours.errorSoft, borderRadius: 14, padding: 16, gap: 4 },
-  errorTitle: { color: Colours.error, fontSize: 14, fontWeight: '800' },
+  errorTitle: { color: Colours.error, fontSize: 14, fontWeight: '900' },
   errorText: { color: Colours.error, fontSize: 13, lineHeight: 19 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  pill: {
-    color: Colours.brandDark,
-    backgroundColor: Colours.brandSoft,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    fontSize: 11,
-    fontWeight: '800',
-  },
+  pill: { color: Colours.brandDark, backgroundColor: Colours.brandSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, fontWeight: '800' },
   errorPill: { color: Colours.error, backgroundColor: Colours.errorSoft },
   issueMessage: { color: Colours.text, fontSize: 14, lineHeight: 21 },
-  detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  detailLabel: { width: 88, color: Colours.textMuted, fontSize: 12, fontWeight: '700' },
-  detailValue: { flex: 1, color: Colours.text, fontSize: 12, lineHeight: 18 },
   actionStack: { gap: 10 },
-  actionOption: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    borderColor: Colours.border,
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
-    backgroundColor: Colours.background,
-  },
+  actionOption: { borderWidth: 1, borderColor: Colours.border, borderRadius: 14, padding: 14 },
   actionOptionSelected: { borderColor: Colours.brand, backgroundColor: Colours.brandSoft },
-  radio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderColor: Colours.textMuted,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 1,
-  },
-  radioSelected: { borderColor: Colours.brand },
-  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colours.brand },
-  actionCopy: { flex: 1, gap: 3 },
-  actionLabel: { color: Colours.text, fontSize: 14, fontWeight: '800' },
+  actionCopy: { gap: 4 },
+  actionLabel: { color: Colours.text, fontSize: 14, fontWeight: '900' },
   actionDescription: { color: Colours.textMuted, fontSize: 12, lineHeight: 18 },
-  actionNotice: { backgroundColor: Colours.infoSoft, borderRadius: 14, padding: 14, gap: 4 },
-  actionNoticeTitle: { color: Colours.info, fontSize: 13, fontWeight: '800' },
-  actionNoticeText: { color: Colours.text, fontSize: 12, lineHeight: 18 },
+  pressed: { opacity: 0.78 },
   inputGroup: { gap: 7 },
   inputLabel: { color: Colours.text, fontSize: 13, fontWeight: '800' },
-  input: {
-    minHeight: 48,
-    backgroundColor: Colours.background,
-    borderColor: Colours.border,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    color: Colours.text,
-    fontSize: 14,
-  },
-  multilineInput: { minHeight: 112 },
-  characterCount: { color: Colours.textMuted, fontSize: 10, textAlign: 'right' },
+  input: { minHeight: 50, borderWidth: 1, borderColor: Colours.border, backgroundColor: Colours.background, borderRadius: 14, paddingHorizontal: 14, color: Colours.text, fontSize: 14 },
+  multilineInput: { minHeight: 120, paddingTop: 14 },
+  characterCount: { color: Colours.textMuted, fontSize: 11, textAlign: 'right' },
   historyCard: { backgroundColor: Colours.background, borderRadius: 14, padding: 14, gap: 8 },
-  historyHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  historyAction: { flex: 1, color: Colours.text, fontSize: 14, fontWeight: '800' },
-  historyStatus: {
-    color: Colours.brandDark,
-    backgroundColor: Colours.brandSoft,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  pressed: { opacity: 0.78 },
+  historyHeading: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  historyAction: { flex: 1, color: Colours.text, fontSize: 14, fontWeight: '900' },
+  historyStatus: { color: Colours.brandDark, backgroundColor: Colours.brandSoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, fontSize: 10, fontWeight: '800' },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  detailLabel: { width: 92, color: Colours.textMuted, fontSize: 12, fontWeight: '700' },
+  detailValue: { flex: 1, color: Colours.text, fontSize: 12, lineHeight: 18 },
 });

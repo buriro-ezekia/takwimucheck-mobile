@@ -1,4 +1,4 @@
-// Provides typed clients for persistent issue review, history and signed audit export.
+// Provides typed authenticated clients for persistent issue review, history and signed audit export.
 
 import {
   ApiError,
@@ -19,7 +19,7 @@ export interface ReviewDecisionRequest {
   issue_id: string;
   validation_run_id: string;
   action: ReviewAction;
-  reviewer: string;
+  reviewer?: string;
   decision_reason: string;
   proposed_value?: string;
   expected_previous_status?: string;
@@ -85,6 +85,13 @@ export interface ReviewAuditExportLinkData {
   file_name: string;
   media_type: string;
   decision_count: number;
+  entitlement?: {
+    server_verified?: boolean;
+    active?: boolean;
+    entitlement_id?: string;
+    checked_at?: string;
+    source?: string;
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -102,13 +109,10 @@ function requireBaseUrl(): string {
   return configuration.baseUrl;
 }
 
-function requireAccessKey(accessKey: string): string {
-  const trimmed = accessKey.trim();
+function requireAccessToken(accessToken: string): string {
+  const trimmed = accessToken.trim();
   if (!trimmed) {
-    throw new ApiError(
-      'Enter the protected-route access key for this app session.',
-      'missing-access-key',
-    );
+    throw new ApiError('Sign in before using the live review workflow.', 'missing-access-key');
   }
   return trimmed;
 }
@@ -130,11 +134,11 @@ function extractErrorMessage(payload: unknown): string | null {
 
 async function requestReview<T>(
   path: string,
-  accessKey: string,
+  accessToken: string,
   options: { method?: 'GET' | 'POST'; body?: unknown } = {},
 ): Promise<T> {
   const baseUrl = requireBaseUrl();
-  const key = requireAccessKey(accessKey);
+  const token = requireAccessToken(accessToken);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REVIEW_TIMEOUT_MS);
 
@@ -144,7 +148,7 @@ async function requestReview<T>(
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        'x-api-key': key,
+        Authorization: `Bearer ${token}`,
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal,
@@ -162,9 +166,25 @@ async function requestReview<T>(
 
     if (!response.ok) {
       const message = extractErrorMessage(payload);
+      if (response.status === 401) {
+        throw new ApiError(
+          message ?? 'Your session has expired. Sign in again.',
+          'access-denied',
+          response.status,
+          payload,
+        );
+      }
+      if (response.status === 402) {
+        throw new ApiError(
+          message ?? 'A server-verified TakwimuCheck Pro entitlement is required.',
+          'access-denied',
+          response.status,
+          payload,
+        );
+      }
       if (response.status === 403) {
         throw new ApiError(
-          message ?? 'Protected backend access was denied. Check the session access key.',
+          message ?? 'Your role is not authorised for this review action.',
           'access-denied',
           response.status,
           payload,
@@ -258,11 +278,11 @@ function parseExportLinkEnvelope(payload: unknown): ServiceEnvelope<ReviewAuditE
 }
 
 export async function submitReviewDecision(
-  accessKey: string,
+  accessToken: string,
   decision: ReviewDecisionRequest,
 ): Promise<ReviewSubmissionData> {
   const envelope = parseSubmissionEnvelope(
-    await requestReview<unknown>('/review-decisions', accessKey, {
+    await requestReview<unknown>('/review-decisions', accessToken, {
       method: 'POST',
       body: [decision],
     }),
@@ -271,7 +291,7 @@ export async function submitReviewDecision(
 }
 
 export async function getReviewHistory(
-  accessKey: string,
+  accessToken: string,
   validationRunId: string,
   options: { issueId?: string; limit?: number; offset?: number } = {},
 ): Promise<ReviewHistoryData> {
@@ -285,20 +305,20 @@ export async function getReviewHistory(
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&');
   const envelope = parseHistoryEnvelope(
-    await requestReview<unknown>(`/review-decisions?${encoded}`, accessKey),
+    await requestReview<unknown>(`/review-decisions?${encoded}`, accessToken),
   );
   return envelope.data;
 }
 
 export async function getReviewAuditExportLink(
-  accessKey: string,
+  accessToken: string,
   validationRunId: string,
 ): Promise<ReviewAuditExportLinkData> {
   const runId = encodeURIComponent(validationRunId.trim());
   const envelope = parseExportLinkEnvelope(
     await requestReview<unknown>(
       `/review-decisions/export/link?validation_run_id=${runId}`,
-      accessKey,
+      accessToken,
     ),
   );
   return envelope.data;
