@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   verify:
-    name: Dependency, route generation, typecheck and web export
+    name: Dependency, security, route generation, typecheck and web export
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -40,6 +40,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+
+      - name: Verify Batch 9 session security invariants
+        run: node scripts/check_batch09_session_security.mjs
 
       - name: Report Expo dependency recommendations
         continue-on-error: true
