@@ -16,8 +16,8 @@ import { Platform } from 'react-native';
 import {
   getServerEntitlement,
   refreshSession as refreshAuthSession,
+  revokeSession as requestRevokeSession,
   signIn as requestSignIn,
-  signOut as requestSignOut,
   type AuthSessionData,
   type AuthUser,
   type ServerEntitlementData,
@@ -55,37 +55,65 @@ interface BackendAccessContextValue {
 
 const BackendAccessContext = createContext<BackendAccessContextValue | null>(null);
 const REFRESH_TOKEN_STORAGE_KEY = 'takwimucheck.refresh-token.v1';
+const PENDING_REVOCATION_STORAGE_KEY = 'takwimucheck.pending-revocation.v1';
 const initialMessage = 'Sign in to open authenticated TakwimuCheck data and review routes.';
 
-async function readStoredRefreshToken(): Promise<string> {
+function removeStaleWebPersistentToken(key: string): void {
+  if (Platform.OS !== 'web') return;
+  try {
+    globalThis.localStorage?.removeItem(key);
+  } catch {
+    // Storage can be unavailable in private/restricted browser contexts.
+  }
+}
+
+async function readStoredSecret(key: string): Promise<string> {
   if (Platform.OS === 'web') {
+    removeStaleWebPersistentToken(key);
     try {
-      return globalThis.localStorage?.getItem(REFRESH_TOKEN_STORAGE_KEY)?.trim() ?? '';
+      return globalThis.sessionStorage?.getItem(key)?.trim() ?? '';
     } catch {
       return '';
     }
   }
-  return (await SecureStore.getItemAsync(REFRESH_TOKEN_STORAGE_KEY))?.trim() ?? '';
+  return (await SecureStore.getItemAsync(key))?.trim() ?? '';
 }
 
-async function writeStoredRefreshToken(value: string): Promise<void> {
+async function writeStoredSecret(key: string, value: string): Promise<void> {
   const token = value.trim();
   if (Platform.OS === 'web') {
+    removeStaleWebPersistentToken(key);
     try {
-      if (token) globalThis.localStorage?.setItem(REFRESH_TOKEN_STORAGE_KEY, token);
-      else globalThis.localStorage?.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+      if (token) globalThis.sessionStorage?.setItem(key, token);
+      else globalThis.sessionStorage?.removeItem(key);
     } catch {
-      // A private browser context may reject storage; the active in-memory session still works.
+      // The in-memory session remains usable when browser session storage is unavailable.
     }
     return;
   }
   if (token) {
-    await SecureStore.setItemAsync(REFRESH_TOKEN_STORAGE_KEY, token, {
+    await SecureStore.setItemAsync(key, token, {
       keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     });
   } else {
-    await SecureStore.deleteItemAsync(REFRESH_TOKEN_STORAGE_KEY);
+    await SecureStore.deleteItemAsync(key);
   }
+}
+
+async function readStoredRefreshToken(): Promise<string> {
+  return readStoredSecret(REFRESH_TOKEN_STORAGE_KEY);
+}
+
+async function writeStoredRefreshToken(value: string): Promise<void> {
+  await writeStoredSecret(REFRESH_TOKEN_STORAGE_KEY, value);
+}
+
+async function readPendingRevocationToken(): Promise<string> {
+  return readStoredSecret(PENDING_REVOCATION_STORAGE_KEY);
+}
+
+async function writePendingRevocationToken(value: string): Promise<void> {
+  await writeStoredSecret(PENDING_REVOCATION_STORAGE_KEY, value);
 }
 
 export function BackendAccessProvider({ children }: { children: ReactNode }) {
@@ -99,19 +127,33 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<ProtectedAccessSnapshot | null>(null);
   const [serverEntitlement, setServerEntitlement] = useState<ServerEntitlementData | null>(null);
   const refreshInProgress = useRef<Promise<boolean> | null>(null);
+  const refreshTokenRef = useRef('');
+  const sessionGenerationRef = useRef(0);
+  const signingOutRef = useRef(false);
 
-  const applySession = useCallback(async (session: AuthSessionData) => {
-    setAccessToken(session.access_token);
-    setRefreshToken(session.refresh_token);
-    setAccessExpiresAt(session.access_expires_at);
-    setUser(session.user);
-    setServerEntitlement(null);
-    setStatus('idle');
-    setMessage(`Signed in as ${session.user.display_name}. Protected data has not been refreshed yet.`);
-    await writeStoredRefreshToken(session.refresh_token);
-  }, []);
+  const applySession = useCallback(
+    async (session: AuthSessionData, expectedGeneration = sessionGenerationRef.current) => {
+      if (signingOutRef.current || expectedGeneration !== sessionGenerationRef.current) {
+        return false;
+      }
+      refreshTokenRef.current = session.refresh_token;
+      setAccessToken(session.access_token);
+      setRefreshToken(session.refresh_token);
+      setAccessExpiresAt(session.access_expires_at);
+      setUser(session.user);
+      setServerEntitlement(null);
+      setStatus('idle');
+      setMessage(
+        `Signed in as ${session.user.display_name}. Protected data has not been refreshed yet.`,
+      );
+      await writeStoredRefreshToken(session.refresh_token);
+      return true;
+    },
+    [],
+  );
 
   const clearSessionState = useCallback((nextMessage = initialMessage) => {
+    refreshTokenRef.current = '';
     setAccessToken('');
     setRefreshToken('');
     setAccessExpiresAt('');
@@ -122,6 +164,18 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
     setMessage(nextMessage);
   }, []);
 
+  const flushPendingRevocation = useCallback(async () => {
+    const pending = await readPendingRevocationToken();
+    if (!pending) return true;
+    try {
+      await requestRevokeSession(pending);
+      await writePendingRevocationToken('');
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const runProtectedCheck = useCallback(async () => {
     if (!accessToken.trim()) {
       setSnapshot(null);
@@ -130,6 +184,7 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
+    void flushPendingRevocation();
     setStatus('checking');
     setMessage('Loading authenticated validation runs and issues…');
     try {
@@ -144,23 +199,32 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
       setMessage(describeApiError(error));
       return null;
     }
-  }, [accessToken]);
+  }, [accessToken, flushPendingRevocation]);
 
   const refreshSession = useCallback(async () => {
+    if (signingOutRef.current) return false;
     if (refreshInProgress.current) return refreshInProgress.current;
+
+    const generation = sessionGenerationRef.current;
     const operation = (async () => {
-      const token = refreshToken.trim() || (await readStoredRefreshToken());
-      if (!token) return false;
+      const token =
+        refreshTokenRef.current || refreshToken.trim() || (await readStoredRefreshToken());
+      if (!token || signingOutRef.current) return false;
       try {
         const session = await refreshAuthSession(token);
-        await applySession(session);
-        return true;
+        if (signingOutRef.current || generation !== sessionGenerationRef.current) {
+          return false;
+        }
+        return await applySession(session, generation);
       } catch (error) {
-        await writeStoredRefreshToken('');
-        clearSessionState(describeApiError(error));
+        if (!signingOutRef.current && generation === sessionGenerationRef.current) {
+          await writeStoredRefreshToken('');
+          clearSessionState(describeApiError(error));
+        }
         return false;
       }
     })();
+
     refreshInProgress.current = operation;
     try {
       return await operation;
@@ -171,6 +235,7 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
+    void flushPendingRevocation();
     void (async () => {
       const storedToken = await readStoredRefreshToken();
       if (!active) return;
@@ -180,14 +245,21 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
         setMessage(initialMessage);
         return;
       }
+
+      const generation = sessionGenerationRef.current;
+      refreshTokenRef.current = storedToken;
       setRefreshToken(storedToken);
       try {
         const session = await refreshAuthSession(storedToken);
-        if (!active) return;
-        await applySession(session);
+        if (!active || signingOutRef.current || generation !== sessionGenerationRef.current) {
+          return;
+        }
+        await applySession(session, generation);
       } catch (error) {
         await writeStoredRefreshToken('');
-        if (active) clearSessionState(describeApiError(error));
+        if (active && !signingOutRef.current && generation === sessionGenerationRef.current) {
+          clearSessionState(describeApiError(error));
+        }
       } finally {
         if (active) setRestoring(false);
       }
@@ -195,10 +267,10 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [applySession, clearSessionState]);
+  }, [applySession, clearSessionState, flushPendingRevocation]);
 
   useEffect(() => {
-    if (!accessToken || !accessExpiresAt || !refreshToken) return;
+    if (!accessToken || !accessExpiresAt || !refreshToken || signingOutRef.current) return;
     const expiry = Date.parse(accessExpiresAt);
     if (!Number.isFinite(expiry)) return;
     const delay = Math.max(1_000, expiry - Date.now() - 60_000);
@@ -210,35 +282,68 @@ export function BackendAccessProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string) => {
+      if (signingOutRef.current) return false;
+      void flushPendingRevocation();
+      const generation = ++sessionGenerationRef.current;
       setStatus('checking');
       setMessage('Signing in…');
       try {
         const session = await requestSignIn(email, password);
-        await applySession(session);
-        setRestoring(false);
-        return true;
+        const applied = await applySession(session, generation);
+        if (applied) setRestoring(false);
+        return applied;
       } catch (error) {
-        clearSessionState(describeApiError(error));
-        setStatus('error');
+        if (generation === sessionGenerationRef.current && !signingOutRef.current) {
+          clearSessionState(describeApiError(error));
+          setStatus('error');
+        }
         return false;
       }
     },
-    [applySession, clearSessionState],
+    [applySession, clearSessionState, flushPendingRevocation],
   );
 
   const signOut = useCallback(async () => {
-    const token = accessToken;
-    clearSessionState('You have signed out.');
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
+    sessionGenerationRef.current += 1;
+
+    const revocationToken =
+      refreshTokenRef.current || refreshToken.trim() || (await readStoredRefreshToken());
+
+    clearSessionState('Signing out…');
     setRestoring(false);
     await writeStoredRefreshToken('');
-    if (token.trim()) {
+
+    const inFlight = refreshInProgress.current;
+    if (inFlight) {
       try {
-        await requestSignOut(token);
+        await inFlight;
       } catch {
-        // Local sign-out remains complete even when the server is temporarily unreachable.
+        // The refresh path already converts failures into a false result.
       }
     }
-  }, [accessToken, clearSessionState]);
+
+    let serverRevoked = true;
+    if (revocationToken) {
+      try {
+        await requestRevokeSession(revocationToken);
+        await writePendingRevocationToken('');
+      } catch {
+        serverRevoked = false;
+        await writePendingRevocationToken(revocationToken);
+      }
+    } else {
+      await writePendingRevocationToken('');
+    }
+
+    setMessage(
+      serverRevoked
+        ? 'You have signed out and the backend session was revoked.'
+        : 'You are signed out locally. Backend revocation is pending and will retry when TakwimuCheck reconnects.',
+    );
+    signingOutRef.current = false;
+  }, [clearSessionState, refreshToken]);
 
   const refreshServerEntitlement = useCallback(
     async (forceRefresh = false) => {
