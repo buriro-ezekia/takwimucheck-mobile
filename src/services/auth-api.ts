@@ -119,7 +119,7 @@ async function request<T>(
       const message = serverMessage(payload);
       throw new ApiError(
         message || `The authentication service returned status ${response.status}.`,
-        response.status === 401 ? 'access-denied' : 'http',
+        response.status === 401 || response.status === 403 ? 'access-denied' : 'http',
         response.status,
         payload,
       );
@@ -182,6 +182,15 @@ export async function signOut(accessToken: string): Promise<void> {
   await request<unknown>('/auth/logout', {
     method: 'POST',
     accessToken,
+  });
+}
+
+export async function revokeSession(refreshToken: string): Promise<void> {
+  const token = refreshToken.trim();
+  if (!token) return;
+  await request<unknown>('/auth/revoke', {
+    method: 'POST',
+    body: { refresh_token: token },
   });
 }
 
