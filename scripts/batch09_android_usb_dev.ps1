@@ -12,7 +12,7 @@ $AppScheme = "takwimucheck"
 $BackendPort = 8000
 $MetroPort = 8081
 $BackendUrl = "http://127.0.0.1:$BackendPort"
-$MetroUrl = "http://127.0.0.1:$MetroPort"
+$MetroDeviceUrl = "http://127.0.0.1:$MetroPort"
 $ExpectedApiLine = "EXPO_PUBLIC_API_BASE_URL=$BackendUrl"
 $RuntimeLogRoot = Join-Path $env:TEMP "takwimucheck-batch09"
 $MetroStdoutLog = Join-Path $RuntimeLogRoot "metro.stdout.log"
@@ -29,6 +29,7 @@ function Get-SingleAndroidDevice {
             Select-String '^\S+\s+device$' |
             ForEach-Object { ($_ -split '\s+')[0] }
     )
+
     $unauthorised = @(
         $lines |
             Select-String '^\S+\s+unauthorized$'
@@ -54,36 +55,6 @@ function Assert-AppInstalled {
     if ($LASTEXITCODE -ne 0 -or -not ($result -match '^package:')) {
         throw "The TakwimuCheck development build is not installed on device $Serial."
     }
-}
-
-function Set-UsbReverseMappings {
-    param([Parameter(Mandatory = $true)][string]$Serial)
-
-    adb -s $Serial reverse --remove-all | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not clear old ADB reverse mappings."
-    }
-
-    adb -s $Serial reverse "tcp:$BackendPort" "tcp:$BackendPort" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not reverse backend port $BackendPort."
-    }
-
-    adb -s $Serial reverse "tcp:$MetroPort" "tcp:$MetroPort" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not reverse Metro port $MetroPort."
-    }
-
-    $mappings = @(adb -s $Serial reverse --list)
-    if (-not ($mappings -match "tcp:$BackendPort")) {
-        throw "Backend reverse mapping tcp:$BackendPort was not created."
-    }
-    if (-not ($mappings -match "tcp:$MetroPort")) {
-        throw "Metro reverse mapping tcp:$MetroPort was not created."
-    }
-
-    Write-Host "ADB reverse ${BackendPort}: passed" -ForegroundColor Green
-    Write-Host "ADB reverse ${MetroPort}: passed" -ForegroundColor Green
 }
 
 function Assert-MobileEnvironment {
@@ -128,20 +99,60 @@ function Test-Backend {
     Write-Host "Backend health: passed" -ForegroundColor Green
 }
 
-function Test-Metro {
-    try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri "$MetroUrl/status" -TimeoutSec 2
-        return ($response.StatusCode -eq 200 -and $response.Content.Trim() -eq "packager-status:running")
+function Set-UsbReverseMappings {
+    param([Parameter(Mandatory = $true)][string]$Serial)
+
+    adb -s $Serial reverse --remove-all | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not clear old ADB reverse mappings."
     }
-    catch {
+
+    adb -s $Serial reverse "tcp:$BackendPort" "tcp:$BackendPort" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not reverse backend port $BackendPort."
+    }
+
+    adb -s $Serial reverse "tcp:$MetroPort" "tcp:$MetroPort" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not reverse Metro port $MetroPort."
+    }
+
+    $mappings = @(adb -s $Serial reverse --list)
+    if (-not ($mappings -match "tcp:$BackendPort")) {
+        throw "Backend reverse mapping tcp:$BackendPort was not created."
+    }
+    if (-not ($mappings -match "tcp:$MetroPort")) {
+        throw "Metro reverse mapping tcp:$MetroPort was not created."
+    }
+
+    Write-Host "ADB reverse ${BackendPort}: passed" -ForegroundColor Green
+    Write-Host "ADB reverse ${MetroPort}: passed" -ForegroundColor Green
+}
+
+function Get-MetroListeners {
+    return @(
+        Get-NetTCPConnection -LocalPort $MetroPort -State Listen -ErrorAction SilentlyContinue
+    )
+}
+
+function Test-MetroListener {
+    $listeners = @(Get-MetroListeners)
+    if ($listeners.Count -eq 0) {
         return $false
     }
+
+    foreach ($listener in $listeners) {
+        $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+        if ($null -ne $process -and $process.ProcessName -match '^(node|npm|npx)$') {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 function Stop-StaleMetroListeners {
-    $listeners = @(
-        Get-NetTCPConnection -LocalPort $MetroPort -State Listen -ErrorAction SilentlyContinue
-    )
+    $listeners = @(Get-MetroListeners)
 
     foreach ($listener in $listeners) {
         $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
@@ -164,20 +175,33 @@ function Get-MetroLogTail {
 
     if (Test-Path $MetroStdoutLog) {
         $lines += "--- Metro stdout ---"
-        $lines += @(Get-Content -Path $MetroStdoutLog -Tail 40 -ErrorAction SilentlyContinue)
+        $lines += @(Get-Content -Path $MetroStdoutLog -Tail 60 -ErrorAction SilentlyContinue)
     }
 
     if (Test-Path $MetroStderrLog) {
         $lines += "--- Metro stderr ---"
-        $lines += @(Get-Content -Path $MetroStderrLog -Tail 40 -ErrorAction SilentlyContinue)
+        $lines += @(Get-Content -Path $MetroStderrLog -Tail 60 -ErrorAction SilentlyContinue)
     }
 
     return @($lines)
 }
 
+function Test-MetroWaitingMarker {
+    if (-not (Test-Path $MetroStdoutLog)) {
+        return $false
+    }
+
+    $text = Get-Content -Path $MetroStdoutLog -Raw -ErrorAction SilentlyContinue
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $false
+    }
+
+    return ($text -match 'Waiting on\s+http://(?:localhost|127\.0\.0\.1):8081')
+}
+
 function Start-Metro {
-    if (Test-Metro) {
-        Write-Host "Metro status: already healthy" -ForegroundColor Green
+    if (Test-MetroListener) {
+        Write-Host "Metro listener: already healthy on port $MetroPort" -ForegroundColor Green
         return
     }
 
@@ -218,28 +242,31 @@ function Start-Metro {
         -WindowStyle Hidden `
         -PassThru
 
-    $deadline = (Get-Date).AddSeconds(90)
+    $deadline = (Get-Date).AddSeconds(120)
 
     do {
         Start-Sleep -Seconds 2
+        $metroProcess.Refresh()
 
-        if (Test-Metro) {
-            Write-Host "Metro status: packager-status:running" -ForegroundColor Green
+        $listenerReady = Test-MetroListener
+        $markerReady = Test-MetroWaitingMarker
+
+        if ($listenerReady -and $markerReady) {
+            Write-Host "Metro listener: ready on port $MetroPort" -ForegroundColor Green
+            Write-Host "Metro startup marker: Waiting on localhost:$MetroPort" -ForegroundColor Green
             Write-Host "Metro PID: $($metroProcess.Id)" -ForegroundColor Green
             Write-Host "Metro logs: $RuntimeLogRoot" -ForegroundColor DarkGray
             return
         }
 
         if ($metroProcess.HasExited) {
-            $metroProcess.Refresh()
-            $exitCode = if ($null -ne $metroProcess.ExitCode) { [string]$metroProcess.ExitCode } else { "unknown" }
             $logTail = Get-MetroLogTail
             if ($logTail.Count -gt 0) {
                 Write-Host ""
                 $logTail | ForEach-Object { Write-Host $_ }
                 Write-Host ""
             }
-            throw "Metro exited before becoming healthy. Exit code: $exitCode. The first actionable Metro error is shown above."
+            throw "Metro exited before becoming ready. Exit code: $($metroProcess.ExitCode). The first actionable Metro error is shown above."
         }
     } while ((Get-Date) -lt $deadline)
 
@@ -254,19 +281,23 @@ function Start-Metro {
         Stop-Process -Id $metroProcess.Id -Force -ErrorAction SilentlyContinue
     }
 
-    throw "Metro did not become healthy on $MetroUrl within 90 seconds. The captured Metro output is shown above."
+    throw "Metro did not create a Node listener on port $MetroPort within 120 seconds. The captured Metro output is shown above."
 }
 
 function Launch-DevelopmentClient {
     param([Parameter(Mandatory = $true)][string]$Serial)
 
-    # Re-assert reverse mappings after Metro startup in case ADB restarted.
+    # Re-assert the USB tunnels immediately before launching the development client.
     Set-UsbReverseMappings -Serial $Serial
+
+    if (-not (Test-MetroListener)) {
+        throw "Metro listener disappeared before the Android development client could be launched."
+    }
 
     adb -s $Serial shell am force-stop $PackageName | Out-Null
     Start-Sleep -Seconds 1
 
-    $encodedMetro = [System.Uri]::EscapeDataString($MetroUrl)
+    $encodedMetro = [System.Uri]::EscapeDataString($MetroDeviceUrl)
     $launchUrl = "${AppScheme}://expo-development-client/?url=$encodedMetro"
 
     $result = @(adb -s $Serial shell am start -W -a android.intent.action.VIEW -d $launchUrl $PackageName)
@@ -279,6 +310,7 @@ function Launch-DevelopmentClient {
     }
 
     Write-Host "Development client launch: requested" -ForegroundColor Green
+    Start-Sleep -Seconds 3
 }
 
 Set-Location $RepoRoot
@@ -302,7 +334,7 @@ Write-Host "============================================" -ForegroundColor Green
 Write-Host "ANDROID USB DEVELOPMENT PATH: PASSED" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host "Backend: $BackendUrl"
-Write-Host "Metro:   $MetroUrl"
+Write-Host "Metro:   $MetroDeviceUrl"
 Write-Host "Device:  $serial"
 Write-Host "Metro logs: $RuntimeLogRoot"
 Write-Host ""
