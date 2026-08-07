@@ -135,8 +135,18 @@ function Get-MetroListeners {
     )
 }
 
-function Test-MetroListener {
-    $listeners = @(Get-MetroListeners)
+function Get-MetroIpv4Listeners {
+    return @(
+        Get-MetroListeners |
+            Where-Object {
+                $_.LocalAddress -eq '127.0.0.1' -or
+                $_.LocalAddress -eq '0.0.0.0'
+            }
+    )
+}
+
+function Test-MetroIpv4Listener {
+    $listeners = @(Get-MetroIpv4Listeners)
     if ($listeners.Count -eq 0) {
         return $false
     }
@@ -149,6 +159,17 @@ function Test-MetroListener {
     }
 
     return $false
+}
+
+function Get-MetroListenerSummary {
+    $listeners = @(Get-MetroListeners)
+    if ($listeners.Count -eq 0) {
+        return "none"
+    }
+
+    return (($listeners | ForEach-Object {
+        "$($_.LocalAddress):$($_.LocalPort) pid=$($_.OwningProcess)"
+    }) -join '; ')
 }
 
 function Stop-StaleMetroListeners {
@@ -200,8 +221,8 @@ function Test-MetroWaitingMarker {
 }
 
 function Start-Metro {
-    if (Test-MetroListener) {
-        Write-Host "Metro listener: already healthy on port $MetroPort" -ForegroundColor Green
+    if (Test-MetroIpv4Listener) {
+        Write-Host "Metro IPv4 listener: already ready on port $MetroPort" -ForegroundColor Green
         return
     }
 
@@ -219,10 +240,8 @@ function Start-Metro {
         throw "The local Expo CLI was not found at '$expoCli'. Run npm install in the mobile repository before continuing."
     }
 
-    Write-Host "Starting Metro directly with the local Expo CLI..." -ForegroundColor Cyan
+    Write-Host "Starting Metro with IPv4-first localhost resolution..." -ForegroundColor Cyan
 
-    # Windows PowerShell Start-Process joins ArgumentList into one command line.
-    # Quote the Expo CLI path explicitly because the repository path contains spaces.
     $metroArguments = @(
         ('"{0}"' -f $expoCli),
         "start",
@@ -233,14 +252,44 @@ function Start-Metro {
         [string]$MetroPort
     ) -join " "
 
-    $metroProcess = Start-Process `
-        -FilePath $nodeExe `
-        -ArgumentList $metroArguments `
-        -WorkingDirectory $RepoRoot `
-        -RedirectStandardOutput $MetroStdoutLog `
-        -RedirectStandardError $MetroStderrLog `
-        -WindowStyle Hidden `
-        -PassThru
+    $previousNodeOptions = $env:NODE_OPTIONS
+    $previousPackagerHostname = $env:REACT_NATIVE_PACKAGER_HOSTNAME
+
+    try {
+        $ipv4Option = "--dns-result-order=ipv4first"
+        if ([string]::IsNullOrWhiteSpace($previousNodeOptions)) {
+            $env:NODE_OPTIONS = $ipv4Option
+        }
+        elseif ($previousNodeOptions -notmatch 'dns-result-order') {
+            $env:NODE_OPTIONS = "$previousNodeOptions $ipv4Option"
+        }
+
+        $env:REACT_NATIVE_PACKAGER_HOSTNAME = "127.0.0.1"
+
+        $metroProcess = Start-Process `
+            -FilePath $nodeExe `
+            -ArgumentList $metroArguments `
+            -WorkingDirectory $RepoRoot `
+            -RedirectStandardOutput $MetroStdoutLog `
+            -RedirectStandardError $MetroStderrLog `
+            -WindowStyle Hidden `
+            -PassThru
+    }
+    finally {
+        if ($null -eq $previousNodeOptions) {
+            Remove-Item Env:NODE_OPTIONS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:NODE_OPTIONS = $previousNodeOptions
+        }
+
+        if ($null -eq $previousPackagerHostname) {
+            Remove-Item Env:REACT_NATIVE_PACKAGER_HOSTNAME -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:REACT_NATIVE_PACKAGER_HOSTNAME = $previousPackagerHostname
+        }
+    }
 
     $deadline = (Get-Date).AddSeconds(120)
 
@@ -248,12 +297,14 @@ function Start-Metro {
         Start-Sleep -Seconds 2
         $metroProcess.Refresh()
 
-        $listenerReady = Test-MetroListener
+        $listenerReady = Test-MetroIpv4Listener
         $markerReady = Test-MetroWaitingMarker
 
         if ($listenerReady -and $markerReady) {
-            Write-Host "Metro listener: ready on port $MetroPort" -ForegroundColor Green
-            Write-Host "Metro startup marker: Waiting on localhost:$MetroPort" -ForegroundColor Green
+            $listenerSummary = Get-MetroListenerSummary
+            Write-Host "Metro IPv4 listener: ready on port $MetroPort" -ForegroundColor Green
+            Write-Host "Metro listeners: $listenerSummary" -ForegroundColor Green
+            Write-Host "Metro startup marker: ready" -ForegroundColor Green
             Write-Host "Metro PID: $($metroProcess.Id)" -ForegroundColor Green
             Write-Host "Metro logs: $RuntimeLogRoot" -ForegroundColor DarkGray
             return
@@ -270,6 +321,7 @@ function Start-Metro {
         }
     } while ((Get-Date) -lt $deadline)
 
+    $listenerSummary = Get-MetroListenerSummary
     $logTail = Get-MetroLogTail
     if ($logTail.Count -gt 0) {
         Write-Host ""
@@ -281,17 +333,16 @@ function Start-Metro {
         Stop-Process -Id $metroProcess.Id -Force -ErrorAction SilentlyContinue
     }
 
-    throw "Metro did not create a Node listener on port $MetroPort within 120 seconds. The captured Metro output is shown above."
+    throw "Metro did not create an IPv4 listener for ADB reverse on port $MetroPort. Listeners seen: $listenerSummary"
 }
 
 function Launch-DevelopmentClient {
     param([Parameter(Mandatory = $true)][string]$Serial)
 
-    # Re-assert the USB tunnels immediately before launching the development client.
     Set-UsbReverseMappings -Serial $Serial
 
-    if (-not (Test-MetroListener)) {
-        throw "Metro listener disappeared before the Android development client could be launched."
+    if (-not (Test-MetroIpv4Listener)) {
+        throw "Metro has no IPv4 listener on port $MetroPort, so ADB reverse cannot safely serve the Redmi."
     }
 
     adb -s $Serial shell am force-stop $PackageName | Out-Null
