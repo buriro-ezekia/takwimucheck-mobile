@@ -1,5 +1,7 @@
 // Provides typed clients for sign-in, token refresh, logout and server entitlement checks.
 
+import { Platform } from 'react-native';
+
 import { ApiError, getApiConfiguration } from '@/services/api';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -52,6 +54,22 @@ function serverMessage(payload: unknown): string {
   if (isRecord(detail) && typeof detail.message === 'string') return detail.message;
   if (typeof payload.message === 'string') return payload.message;
   return '';
+}
+
+function authenticationNetworkMessage(baseUrl: string): string {
+  const nativeLoopback =
+    Platform.OS !== 'web' &&
+    /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?=[:/]|$)/i.test(baseUrl);
+
+  if (nativeLoopback) {
+    return (
+      'The authentication backend is configured with localhost or 127.0.0.1. ' +
+      'A physical phone cannot reach the computer through that address. ' +
+      'Set EXPO_PUBLIC_API_BASE_URL to the computer LAN IPv4 address, restart Metro with --clear, and try again.'
+    );
+  }
+
+  return 'The authentication service could not be reached.';
 }
 
 async function request<T>(
@@ -113,7 +131,7 @@ async function request<T>(
       throw new ApiError('The authentication service timed out.', 'timeout');
     }
     throw new ApiError(
-      'The authentication service could not be reached.',
+      authenticationNetworkMessage(configuration.baseUrl),
       'network',
       0,
       error,
